@@ -1,0 +1,471 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Registry API Wrapper Prototype</title>
+  <style>
+    :root {
+      --bg: #f6f8fb;
+      --panel: #ffffff;
+      --ink: #172033;
+      --muted: #64748b;
+      --line: #dbe3ee;
+      --primary: #2563eb;
+      --success: #15803d;
+      --warning: #b45309;
+      --danger: #b91c1c;
+      --code-bg: #101827;
+      --code-ink: #e5eefb;
+      --radius: 8px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.5;
+    }
+
+    button,
+    input {
+      font: inherit;
+    }
+
+    .shell {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 240px minmax(0, 1fr);
+    }
+
+    .sidebar {
+      background: #111827;
+      color: #e5e7eb;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    .brand {
+      font-weight: 700;
+      font-size: 18px;
+    }
+
+    .nav {
+      display: grid;
+      gap: 6px;
+    }
+
+    .nav a {
+      color: #cbd5e1;
+      text-decoration: none;
+      padding: 10px 12px;
+      border-radius: 6px;
+    }
+
+    .nav a.active,
+    .nav a:hover {
+      background: #1f2937;
+      color: #ffffff;
+    }
+
+    .main {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      min-width: 0;
+    }
+
+    .topbar {
+      height: 64px;
+      padding: 0 24px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .registry-url {
+      color: var(--muted);
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .content {
+      padding: 24px;
+      display: grid;
+      gap: 20px;
+      align-content: start;
+    }
+
+    .page-title {
+      margin: 0;
+      font-size: 24px;
+      line-height: 1.2;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 16px;
+      min-width: 0;
+    }
+
+    .label {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+
+    .metric {
+      margin-top: 8px;
+      font-size: 22px;
+      font-weight: 700;
+    }
+
+    .status {
+      display: inline-flex;
+      align-items: center;
+      min-height: 28px;
+      padding: 2px 10px;
+      border-radius: 999px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+
+    .status.ok {
+      background: #dcfce7;
+      color: var(--success);
+    }
+
+    .status.warn {
+      background: #fef3c7;
+      color: var(--warning);
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .search {
+      min-width: 260px;
+      height: 40px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0 12px;
+      background: #ffffff;
+    }
+
+    .actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      min-height: 40px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      background: #ffffff;
+      color: var(--ink);
+      padding: 0 12px;
+      cursor: pointer;
+    }
+
+    .btn.primary {
+      background: var(--primary);
+      color: #ffffff;
+      border-color: var(--primary);
+    }
+
+    .btn.danger {
+      color: var(--danger);
+      border-color: #fecaca;
+      background: #fff7f7;
+    }
+
+    .table-wrap {
+      overflow-x: auto;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      min-width: 760px;
+    }
+
+    th,
+    td {
+      padding: 12px;
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      vertical-align: top;
+      font-size: 14px;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0;
+      background: #f8fafc;
+    }
+
+    code,
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 13px;
+    }
+
+    .split {
+      display: grid;
+      grid-template-columns: minmax(0, 1.3fr) minmax(320px, 0.7fr);
+      gap: 16px;
+    }
+
+    .json {
+      background: var(--code-bg);
+      color: var(--code-ink);
+      border-radius: var(--radius);
+      padding: 16px;
+      overflow: auto;
+      max-height: 360px;
+      font-size: 13px;
+    }
+
+    .modal-backdrop {
+      background: rgba(15, 23, 42, 0.56);
+      padding: 32px;
+    }
+
+    .modal {
+      max-width: 760px;
+      margin: 0 auto;
+      background: var(--panel);
+      border-radius: var(--radius);
+      border: 1px solid var(--line);
+      padding: 20px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .warning-box {
+      border: 1px solid #fed7aa;
+      background: #fff7ed;
+      color: #7c2d12;
+      border-radius: var(--radius);
+      padding: 12px;
+    }
+
+    @media (max-width: 920px) {
+      .shell {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        position: static;
+      }
+
+      .grid,
+      .split {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand">Registry API Wrapper</div>
+      <nav class="nav" aria-label="Primary">
+        <a class="active" href="#overview">Overview</a>
+        <a href="#repositories">Repositories</a>
+        <a href="#settings">Settings</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="registry-url">https://registry.example.com</div>
+        <div class="actions">
+          <button class="btn">Refresh</button>
+          <button class="btn">Logout</button>
+        </div>
+      </header>
+
+      <section class="content" id="overview">
+        <h1 class="page-title">Overview</h1>
+        <div class="grid">
+          <article class="card">
+            <div class="label">Registry API</div>
+            <div class="metric"><span class="status ok">Available</span></div>
+          </article>
+          <article class="card">
+            <div class="label">Authentication</div>
+            <div class="metric"><span class="status ok">Authenticated</span></div>
+          </article>
+          <article class="card">
+            <div class="label">Repositories</div>
+            <div class="metric">128</div>
+          </article>
+          <article class="card">
+            <div class="label">Delete Capability</div>
+            <div class="metric"><span class="status warn">Unknown</span></div>
+          </article>
+        </div>
+
+        <section class="card" id="repositories">
+          <div class="toolbar">
+            <h2 class="page-title">Repositories</h2>
+            <div class="actions">
+              <input class="search" placeholder="Search loaded repositories" />
+              <button class="btn">Load all</button>
+              <button class="btn primary">Refresh</button>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Repository</th>
+                  <th>Loaded Tags</th>
+                  <th>Last Cursor</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td class="mono">app/backend</td>
+                  <td>32</td>
+                  <td class="mono">app/backend</td>
+                  <td>
+                    <button class="btn">Open</button>
+                    <button class="btn">Copy</button>
+                  </td>
+                </tr>
+                <tr>
+                  <td class="mono">app/frontend</td>
+                  <td>18</td>
+                  <td class="mono">app/frontend</td>
+                  <td>
+                    <button class="btn">Open</button>
+                    <button class="btn">Copy</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="split">
+          <article class="card">
+            <div class="toolbar">
+              <h2 class="page-title">app/backend Tags</h2>
+              <div class="actions">
+                <input class="search" placeholder="Search loaded tags" />
+                <button class="btn">Load all</button>
+              </div>
+            </div>
+            <div class="table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Tag</th>
+                    <th>Digest</th>
+                    <th>Media Type</th>
+                    <th>Tag Size</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="mono">latest</td>
+                    <td class="mono">sha256:8f3a...</td>
+                    <td>Docker manifest v2</td>
+                    <td>186 MB</td>
+                    <td>
+                      <button class="btn">Manifest</button>
+                      <button class="btn">Pull</button>
+                      <button class="btn danger">Delete Manifest</button>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td class="mono">v1.4.2</td>
+                    <td class="mono">sha256:91cd...</td>
+                    <td>OCI index</td>
+                    <td>Index only</td>
+                    <td>
+                      <button class="btn">Manifest</button>
+                      <button class="btn">Pull</button>
+                      <button class="btn danger">Delete Manifest</button>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </article>
+
+          <article class="card">
+            <h2 class="page-title">Manifest Detail</h2>
+            <p><span class="label">Repository</span><br><span class="mono">app/backend</span></p>
+            <p><span class="label">Reference</span><br><span class="mono">latest</span></p>
+            <p><span class="label">Digest</span><br><span class="mono">sha256:8f3a...</span></p>
+            <p><span class="label">Tag Size</span><br>Sum of manifest layer sizes. Not disk usage.</p>
+            <pre class="json">{
+  "schemaVersion": 2,
+  "mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+  "layers": [
+    { "size": 48234102, "digest": "sha256:..." }
+  ]
+}</pre>
+          </article>
+        </section>
+
+        <section class="modal-backdrop" aria-label="Delete confirmation prototype">
+          <div class="modal">
+            <h2 class="page-title">Delete Manifest</h2>
+            <div class="warning-box">
+              此操作删除的是 tag 当前指向的 manifest digest，不是删除一个 tag 字符串。
+              如果其他 tag 指向相同 digest，也可能受到影响。删除不会立即释放磁盘空间，本系统不会执行 garbage-collect。
+            </div>
+            <p><span class="label">Repository</span><br><span class="mono">app/backend</span></p>
+            <p><span class="label">Tag</span><br><span class="mono">latest</span></p>
+            <p><span class="label">Digest</span><br><span class="mono">sha256:8f3a...</span></p>
+            <p><span class="label">API</span><br><span class="mono">DELETE /v2/app/backend/manifests/sha256:8f3a...</span></p>
+            <label>
+              <span class="label">Type tag name to confirm</span>
+              <input class="search" value="latest" />
+            </label>
+            <div class="actions">
+              <button class="btn">Cancel</button>
+              <button class="btn danger">Delete Manifest Digest</button>
+            </div>
+          </div>
+        </section>
+      </section>
+    </main>
+  </div>
+</body>
+</html>
