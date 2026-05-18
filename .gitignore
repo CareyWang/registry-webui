@@ -1,0 +1,3 @@
+.cache/
+.playwright-mcp/
+web/node_modules/
