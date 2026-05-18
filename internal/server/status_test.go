@@ -182,6 +182,13 @@ func authenticatedRequest(method, path string) *http.Request {
 	return req
 }
 
+func authenticatedJSONRequest(method, path, body string) *http.Request {
+	req := authenticatedRequest(method, path)
+	req.Body = io.NopCloser(strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	return req
+}
+
 type fakeRegistryClient struct {
 	method   string
 	path     string

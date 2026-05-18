@@ -45,6 +45,31 @@ func TestDigestResolvesReferenceWithManifestAcceptHeaders(t *testing.T) {
 	}
 }
 
+func TestManifestEscapesReferenceBeforeCallingRegistry(t *testing.T) {
+	fakeRegistry := &fakeRegistryClient{
+		response: &registry.Response{
+			Status: http.StatusOK,
+			Header: http.Header{
+				"Docker-Content-Digest": []string{"sha256:manifest"},
+				"Content-Type":          []string{dockerManifestV2MediaType},
+			},
+			Body: []byte(`{"schemaVersion":2,"mediaType":"application/vnd.docker.distribution.manifest.v2+json","layers":[]}`),
+		},
+	}
+	handler := newManifestTestHandler(fakeRegistry)
+
+	resp := httptest.NewRecorder()
+	req := authenticatedRequest(http.MethodGet, "/api/repositories/app%2Fbackend/manifests/release%3Fchannel%3Dprod")
+	handler.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body = %s", resp.Code, resp.Body.String())
+	}
+	if fakeRegistry.path != "/v2/app/backend/manifests/release%3Fchannel=prod" {
+		t.Fatalf("registry path = %q, want escaped reference path", fakeRegistry.path)
+	}
+}
+
 func TestManifestReturnsDockerManifestV2WithComputedLayerSize(t *testing.T) {
 	fakeRegistry := &fakeRegistryClient{
 		response: &registry.Response{
@@ -191,7 +216,7 @@ func TestManifestDeleteCallsRegistryWithDigest(t *testing.T) {
 	handler := newManifestTestHandler(fakeRegistry)
 
 	resp := httptest.NewRecorder()
-	req := authenticatedRequest(http.MethodDelete, "/api/repositories/app%2Fbackend/manifests/sha256%3Amanifest")
+	req := authenticatedJSONRequest(http.MethodDelete, "/api/repositories/app%2Fbackend/manifests/sha256%3Amanifest", `{"confirmedReference":"latest"}`)
 	handler.ServeHTTP(resp, req)
 
 	if resp.Code != http.StatusAccepted {
@@ -205,8 +230,26 @@ func TestManifestDeleteCallsRegistryWithDigest(t *testing.T) {
 	if err := json.Unmarshal(resp.Body.Bytes(), &body); err != nil {
 		t.Fatalf("response JSON error = %v", err)
 	}
-	if body.Repository != "app/backend" || body.Digest != "sha256:manifest" || body.Status != http.StatusAccepted {
+	if body.Repository != "app/backend" || body.Digest != "sha256:manifest" || body.Status != http.StatusAccepted || !body.Deleted {
 		t.Fatalf("body = %+v", body)
+	}
+}
+
+func TestManifestDeleteRequiresConfirmedReference(t *testing.T) {
+	fakeRegistry := &fakeRegistryClient{
+		response: &registry.Response{Status: http.StatusAccepted},
+	}
+	handler := newManifestTestHandler(fakeRegistry)
+
+	resp := httptest.NewRecorder()
+	req := authenticatedRequest(http.MethodDelete, "/api/repositories/app%2Fbackend/manifests/sha256%3Amanifest")
+	handler.ServeHTTP(resp, req)
+
+	if resp.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body = %s", resp.Code, resp.Body.String())
+	}
+	if fakeRegistry.calls != 0 {
+		t.Fatalf("registry calls = %d, want 0", fakeRegistry.calls)
 	}
 }
 
@@ -248,7 +291,7 @@ func TestManifestDeleteSurfacesDeleteDisabledRegistryResponses(t *testing.T) {
 			handler := newManifestTestHandler(fakeRegistry)
 
 			resp := httptest.NewRecorder()
-			req := authenticatedRequest(http.MethodDelete, "/api/repositories/app%2Fbackend/manifests/sha256%3Amanifest")
+			req := authenticatedJSONRequest(http.MethodDelete, "/api/repositories/app%2Fbackend/manifests/sha256%3Amanifest", `{"confirmedReference":"latest"}`)
 			handler.ServeHTTP(resp, req)
 
 			if resp.Code != tc.wantStatus {

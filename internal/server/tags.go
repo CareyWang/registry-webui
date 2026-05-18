@@ -50,7 +50,7 @@ func (s *Server) tagsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	registryPath := "/v2/" + repository + "/tags/list?" + catalogQuery(r, s.config.RegistryPageSize).Encode()
+	registryPath := registryTagsPath(repository, catalogQuery(r, s.config.RegistryPageSize))
 	resp, err := s.registry.Do(r.Context(), http.MethodGet, registryPath, nil)
 	if err != nil {
 		var apiErr *api.Error

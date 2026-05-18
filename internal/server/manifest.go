@@ -51,6 +51,7 @@ type manifestResponse struct {
 }
 
 type deleteManifestResponse struct {
+	Deleted    bool   `json:"deleted"`
 	Repository string `json:"repository"`
 	Digest     string `json:"digest"`
 	Status     int    `json:"status"`
@@ -95,7 +96,7 @@ func (s *Server) digestHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := s.doRegistryWithHeaders(r.Context(), http.MethodHead, "/v2/"+repository+"/manifests/"+reference, nil, manifestAcceptHeader())
+	resp, err := s.doRegistryWithHeaders(r.Context(), http.MethodHead, registryManifestPath(repository, reference), nil, manifestAcceptHeader())
 	if err != nil {
 		writeRegistryError(w, err)
 		return
@@ -127,7 +128,7 @@ func (s *Server) manifestHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	resp, err := s.doRegistryWithHeaders(r.Context(), http.MethodGet, "/v2/"+repository+"/manifests/"+reference, nil, manifestAcceptHeader())
+	resp, err := s.doRegistryWithHeaders(r.Context(), http.MethodGet, registryManifestPath(repository, reference), nil, manifestAcceptHeader())
 	if err != nil {
 		writeRegistryError(w, err)
 		return
@@ -169,12 +170,23 @@ func (s *Server) deleteManifest(w http.ResponseWriter, r *http.Request, reposito
 		writeError(w, http.StatusBadRequest, "invalid_digest", "manifest deletion requires a digest reference")
 		return
 	}
+	var request struct {
+		ConfirmedReference string `json:"confirmedReference"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid_request", "request body must include confirmedReference")
+		return
+	}
+	if strings.TrimSpace(request.ConfirmedReference) == "" {
+		writeError(w, http.StatusBadRequest, "confirmed_reference_required", "confirmedReference is required")
+		return
+	}
 	if s.registry == nil {
 		writeError(w, http.StatusInternalServerError, "registry_client_missing", "Registry client is not configured")
 		return
 	}
 
-	resp, err := s.registry.Do(r.Context(), http.MethodDelete, "/v2/"+repository+"/manifests/"+digest, nil)
+	resp, err := s.registry.Do(r.Context(), http.MethodDelete, registryManifestPath(repository, digest), nil)
 	if err != nil {
 		writeRegistryError(w, err)
 		return
@@ -185,6 +197,7 @@ func (s *Server) deleteManifest(w http.ResponseWriter, r *http.Request, reposito
 		status = http.StatusAccepted
 	}
 	writeJSON(w, status, deleteManifestResponse{
+		Deleted:    true,
 		Repository: repository,
 		Digest:     digest,
 		Status:     status,

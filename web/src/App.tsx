@@ -16,7 +16,13 @@ type StatusResponse = {
     message: string;
     status: number;
     registryStatus?: number;
+    registryErrors?: RegistryError[];
   };
+};
+type RegistryError = {
+  code: string;
+  message: string;
+  detail?: unknown;
 };
 type RepositoryResponse = {
   repositories: string[];
@@ -61,6 +67,7 @@ type DigestResponse = {
   contentType: string;
 };
 type DeleteManifestResponse = {
+  deleted: boolean;
   repository: string;
   digest: string;
   status: number;
@@ -71,6 +78,7 @@ type ApiErrorResponse = {
     message: string;
     status: number;
     registryStatus?: number;
+    registryErrors?: RegistryError[];
   };
 };
 type DeleteTarget = {
@@ -750,7 +758,9 @@ function RepositoryDetailPage({ repository }: { repository: string }) {
     setDeleteStatus("");
     try {
       const response = await fetch(`/api/repositories/${encodeURIComponent(repository)}/manifests/${encodeURIComponent(deleteTarget.digest)}`, {
-        method: "DELETE"
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmedReference: deleteTarget.tag })
       });
       if (!response.ok) {
         throw new Error(await readApiError(response, "Unable to delete manifest."));
@@ -891,6 +901,7 @@ function DeleteManifestDialog({
           <StatusItem label="Operation" value={operation} />
         </div>
         <div className="delete-warning">
+          <p>This deletes the manifest digest currently referenced by this tag.</p>
           <p>Other tags pointing to the same digest may be affected.</p>
           <p>Disk space is not released until external Registry garbage collection runs.</p>
         </div>
@@ -926,9 +937,16 @@ async function readApiError(response: Response, fallback: string): Promise<strin
   try {
     const body = (await response.json()) as ApiErrorResponse;
     if (body.error?.message) {
-      return body.error.registryStatus
+      const baseMessage = body.error.registryStatus
         ? `${body.error.message} Registry status ${body.error.registryStatus}.`
         : body.error.message;
+      if (body.error.registryErrors && body.error.registryErrors.length > 0) {
+        const registryDetails = body.error.registryErrors
+          .map((registryError) => `${registryError.code}: ${registryError.message}`)
+          .join(" ");
+        return `${baseMessage} ${registryDetails}`;
+      }
+      return baseMessage;
     }
   } catch {
     // Fall through to the caller-provided message.
@@ -993,6 +1011,9 @@ function OverviewPage() {
             {status.error.code}
             {status.error.registryStatus ? ` / Registry ${status.error.registryStatus}` : ""}
           </span>
+          {status.error.registryErrors && status.error.registryErrors.length > 0 ? (
+            <pre>{JSON.stringify(status.error.registryErrors, null, 2)}</pre>
+          ) : null}
         </div>
       ) : null}
     </section>

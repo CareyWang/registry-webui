@@ -480,6 +480,16 @@ nav {
   padding: 16px;
 }
 
+.status-error pre {
+  overflow: auto;
+  max-height: 220px;
+  margin: 8px 0 0;
+  border-radius: 6px;
+  background: #431407;
+  color: #ffedd5;
+  padding: 12px;
+}
+
 @media (max-width: 760px) {
   .app-layout {
     grid-template-columns: 1fr;
