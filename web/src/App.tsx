@@ -1,4 +1,38 @@
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import {
+  Avatar,
+  Banner,
+  Button,
+  Card,
+  Descriptions,
+  Empty,
+  Input,
+  Layout,
+  Modal,
+  Nav,
+  Space,
+  Spin,
+  Table,
+  Tag,
+  Toast,
+  Typography
+} from "@douyinfe/semi-ui-19";
+import {
+  IconAlertTriangle,
+  IconChevronLeft,
+  IconCopy,
+  IconDelete,
+  IconExit,
+  IconFile,
+  IconHome,
+  IconLayers,
+  IconLock,
+  IconRefresh,
+  IconSearch,
+  IconServer,
+  IconSetting,
+  IconTerminal
+} from "@douyinfe/semi-icons";
 import "./styles.css";
 
 type AuthState = "checking" | "authenticated" | "anonymous";
@@ -85,7 +119,25 @@ type DeleteTarget = {
   tag: string;
   digest: string;
 };
+type RepositoryRow = {
+  key: string;
+  repository: string;
+  scope: string;
+};
+type TagRow = {
+  key: string;
+  tag: string;
+  command: string;
+};
+type DescriptorRow = {
+  key: string;
+  digest: string;
+  mediaType: string;
+  size: string;
+};
 
+const { Content, Header, Sider } = Layout;
+const { Text, Title, Paragraph } = Typography;
 const protectedPages = new Set<Page>(["overview", "repositories", "settings"]);
 
 function pageFromPath(pathname: string): Page {
@@ -231,18 +283,23 @@ export function App() {
   if (authState === "checking" && protectedPages.has(page)) {
     return (
       <main className="centered-shell">
-        <section className="panel compact-panel" aria-live="polite">
-          Checking session...
-        </section>
+        <Card className="checking-card">
+          <Spin size="large" />
+          <Text type="tertiary">Checking session...</Text>
+        </Card>
       </main>
     );
   }
 
   if (page === "login" || authState === "anonymous") {
-    return <LoginPage onAuthenticated={() => {
-      setAuthState("authenticated");
-      navigate("overview", true);
-    }} />;
+    return (
+      <LoginPage
+        onAuthenticated={() => {
+          setAuthState("authenticated");
+          navigate("overview", true);
+        }}
+      />
+    );
   }
 
   return <AppShell activePage={page} onNavigate={navigate} onLogout={logout} />;
@@ -280,34 +337,58 @@ function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) {
   }
 
   return (
-    <main className="centered-shell">
-      <section className="panel login-panel">
-        <p className="eyebrow">Registry API Wrapper v0.1</p>
-        <h1>Sign in</h1>
-        <form className="login-form" onSubmit={submit}>
-          <label>
-            Username
-            <input
-              autoComplete="username"
-              value={username}
-              onChange={(event) => setUsername(event.target.value)}
-            />
-          </label>
-          <label>
-            Password
-            <input
-              autoComplete="current-password"
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-            />
-          </label>
-          {error ? <p className="form-error" role="alert">{error}</p> : null}
-          <button type="submit" disabled={submitting}>
-            {submitting ? "Signing in..." : "Sign in"}
-          </button>
-        </form>
+    <main className="login-shell">
+      <section className="login-visual" aria-label="Registry API Wrapper">
+        <Tag color="teal" prefixIcon={<IconServer />}>Registry API Wrapper v0.1</Tag>
+        <div>
+          <Title className="login-title" heading={1}>Registry Web UI</Title>
+          <Paragraph>
+            A compact control surface for browsing repositories, inspecting manifests, and
+            operating against a Docker Registry HTTP API V2 endpoint.
+          </Paragraph>
+        </div>
+        <div className="login-metrics">
+          <MetricCard label="Mode" value="Read first" />
+          <MetricCard label="API" value="V2" />
+          <MetricCard label="Deletes" value="Guarded" />
+        </div>
       </section>
+
+      <Card className="login-card" shadows="always">
+        <Space vertical align="start" spacing={8} className="full-width">
+          <Avatar color="teal" size="extra-large">
+            <IconLock size="extra-large" />
+          </Avatar>
+          <Title heading={3}>Sign in</Title>
+          <Text type="tertiary">Use the local wrapper credentials to continue.</Text>
+        </Space>
+
+        <form className="semi-form-stack" onSubmit={submit}>
+          <FieldLabel label="Username">
+            <Input
+              autoComplete="username"
+              prefix={<IconServer />}
+              size="large"
+              value={username}
+              onChange={setUsername}
+            />
+          </FieldLabel>
+          <FieldLabel label="Password">
+            <Input
+              autoComplete="current-password"
+              mode="password"
+              prefix={<IconLock />}
+              size="large"
+              value={password}
+              onChange={setPassword}
+            />
+          </FieldLabel>
+          {error ? <Banner type="danger" description={error} closeIcon={null} /> : null}
+          <Button block htmlType="submit" loading={submitting} size="large" theme="solid" type="primary">
+            Sign in
+          </Button>
+        </form>
+      </Card>
     </main>
   );
 }
@@ -323,39 +404,54 @@ function AppShell({
 }) {
   const navigation = useMemo(
     () => [
-      { page: "overview" as const, label: "Overview" },
-      { page: "repositories" as const, label: "Repositories" },
-      { page: "settings" as const, label: "Settings" }
+      { itemKey: "overview", text: "Overview", icon: <IconHome /> },
+      { itemKey: "repositories", text: "Repositories", icon: <IconLayers /> },
+      { itemKey: "settings", text: "Settings", icon: <IconSetting /> }
     ],
     []
   );
 
   return (
-    <div className="app-layout">
-      <aside className="sidebar">
-        <div>
-          <p className="eyebrow">Registry API Wrapper</p>
-          <h1>Registry Web UI</h1>
-        </div>
-        <nav aria-label="Primary">
-          {navigation.map((item) => (
-            <button
-              aria-current={activePage === item.page ? "page" : undefined}
-              className="nav-button"
-              key={item.page}
-              onClick={() => onNavigate(item.page)}
-              type="button"
+    <Layout className="app-layout">
+      <Sider className="app-sider" aria-label="Primary navigation">
+        <Nav
+          bodyStyle={{ flex: 1 }}
+          className="app-nav"
+          footer={
+            <Button
+              block
+              icon={<IconExit />}
+              onClick={onLogout}
+              theme="borderless"
+              type="tertiary"
             >
-              {item.label}
-            </button>
-          ))}
-        </nav>
-        <button className="secondary-button" onClick={onLogout} type="button">
-          Sign out
-        </button>
-      </aside>
-      <main className="content-shell">{renderPage(activePage)}</main>
-    </div>
+              Sign out
+            </Button>
+          }
+          header={{
+            logo: (
+              <Avatar color="teal" size="small">
+                <IconServer />
+              </Avatar>
+            ),
+            text: "Registry Web UI"
+          }}
+          items={navigation}
+          selectedKeys={[activePage]}
+          onSelect={({ itemKey }) => onNavigate(itemKey as Page)}
+        />
+      </Sider>
+      <Layout className="app-main">
+        <Header className="app-header">
+          <div>
+            <Text strong>Registry API Wrapper</Text>
+            <Text type="tertiary">Operational console</Text>
+          </div>
+          <Tag color="green" prefixIcon={<IconTerminal />}>Docker Registry V2</Tag>
+        </Header>
+        <Content className="content-shell">{renderPage(activePage)}</Content>
+      </Layout>
+    </Layout>
   );
 }
 
@@ -368,9 +464,7 @@ function renderPage(page: Page) {
     return <SettingsPage />;
   }
 
-  return (
-    <OverviewPage />
-  );
+  return <OverviewPage />;
 }
 
 function RepositoriesPage() {
@@ -393,11 +487,37 @@ function RepositoriesPage() {
 
   const filteredRepositories = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) {
-      return repositories;
-    }
-    return repositories.filter((repository) => repository.toLowerCase().includes(normalizedQuery));
-  }, [query, repositories]);
+    const source = normalizedQuery
+      ? repositories.filter((repository) => repository.toLowerCase().includes(normalizedQuery))
+      : repositories;
+    return source.map<RepositoryRow>((repository) => ({
+      key: repository,
+      repository,
+      scope: next && hasNext ? "Current page" : "Loaded"
+    }));
+  }, [hasNext, next, query, repositories]);
+
+  const columns = useMemo(
+    () => [
+      {
+        title: "Repository",
+        dataIndex: "repository",
+        render: (repository: string) => (
+          <a className="resource-link" href={repositoryPath(repository)}>
+            <IconLayers />
+            <span>{repository}</span>
+          </a>
+        )
+      },
+      {
+        title: "Load scope",
+        dataIndex: "scope",
+        width: 150,
+        render: (scope: string) => <Tag color={scope === "Loaded" ? "green" : "blue"}>{scope}</Tag>
+      }
+    ],
+    []
+  );
 
   async function fetchRepositoryPage(last = "") {
     const params = new URLSearchParams({ n: "100" });
@@ -460,45 +580,45 @@ function RepositoriesPage() {
   }, []);
 
   return (
-    <section className="content-section">
-      <p className="eyebrow">Repositories</p>
-      <div className="section-heading">
-        <h2>Repositories</h2>
-        <div className="toolbar">
-          <button className="secondary-button inline-button" onClick={loadFirstPage} type="button">
+    <PageFrame
+      eyebrow="Repositories"
+      title="Repositories"
+      description="Browse loaded repositories and open tag details without leaving the console."
+      actions={
+        <Space>
+          <Button icon={<IconRefresh />} loading={loading} onClick={loadFirstPage} theme="light" type="tertiary">
             Refresh
-          </button>
-          <button className="inline-button" disabled={!hasNext || loading} onClick={loadAllRepositories} type="button">
-            Load all repositories
-          </button>
+          </Button>
+          <Button disabled={!hasNext || loading} onClick={loadAllRepositories} theme="solid" type="primary">
+            Load all
+          </Button>
+        </Space>
+      }
+    >
+      <Card className="workspace-card" shadows="hover">
+        <div className="table-toolbar">
+          <Input
+            className="search-input"
+            placeholder="Search loaded repositories"
+            prefix={<IconSearch />}
+            showClear
+            value={query}
+            onChange={setQuery}
+          />
+          <Text type="tertiary">{repositories.length} loaded</Text>
         </div>
-      </div>
-      <label className="search-field">
-        Search loaded repositories
-        <input
-          placeholder="app/backend"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
+        {error ? <Banner type="danger" description={error} closeIcon={null} /> : null}
+        <Table<RepositoryRow>
+          columns={columns}
+          dataSource={filteredRepositories}
+          empty={<Empty title="No repositories found" description="Refresh the registry or adjust the search." />}
+          loading={loading}
+          pagination={false}
+          rowKey="key"
+          size="middle"
         />
-      </label>
-      {error ? <p className="form-error" role="alert">{error}</p> : null}
-      {loading ? <p className="muted-text" role="status">Loading repositories...</p> : null}
-      {!loading && !error && filteredRepositories.length === 0 ? (
-        <p className="muted-text">No repositories found.</p>
-      ) : null}
-      {filteredRepositories.length > 0 ? (
-        <div className="repository-list">
-          {filteredRepositories.map((repository) => (
-            <div className="repository-row" key={repository}>
-              <a className="repository-link" href={repositoryPath(repository)}>
-                {repository}
-              </a>
-              <span>{next && hasNext ? "Current page" : "Loaded"}</span>
-            </div>
-          ))}
-        </div>
-      ) : null}
-    </section>
+      </Card>
+    </PageFrame>
   );
 }
 
@@ -542,75 +662,102 @@ function ManifestDetailPage({ repository, reference }: { repository: string; ref
   }, [reference, repository]);
 
   return (
-    <section className="content-section">
-      <p className="eyebrow">Manifest Detail</p>
-      <div className="section-heading">
-        <div>
-          <h2>{reference}</h2>
-          <p className="muted-text">{repository}</p>
-        </div>
-        <a className="secondary-link-button" href={repositoryPath(repository)}>Back to tags</a>
-      </div>
-      {loading ? <p className="muted-text" role="status">Loading manifest...</p> : null}
-      {error ? <p className="form-error" role="alert">{error}</p> : null}
-      {manifest ? (
-        <>
-          <div className="status-grid">
-            <StatusItem label="Repository" value={manifest.repository} />
-            <StatusItem label="Reference" value={manifest.reference} />
-            <StatusItem label="Digest" value={manifest.digest} />
-            <StatusItem label="Media Type" value={manifest.mediaType} />
-            <StatusItem label="Schema Version" value={String(manifest.schemaVersion)} />
-            <StatusItem label="Tag Size" value={formatBytes(manifest.size)} />
-          </div>
-          <ManifestDescriptors manifest={manifest} />
-          <section className="raw-json-section">
-            <h3>Raw JSON</h3>
-            <pre>{JSON.stringify(manifest.raw, null, 2)}</pre>
-          </section>
-        </>
-      ) : null}
-    </section>
+    <PageFrame
+      eyebrow="Manifest detail"
+      title={reference}
+      description={repository}
+      actions={
+        <Button component="a" href={repositoryPath(repository)} icon={<IconChevronLeft />} theme="light" type="tertiary">
+          Back to tags
+        </Button>
+      }
+    >
+      {error ? <Banner type="danger" description={error} closeIcon={null} /> : null}
+      <Spin spinning={loading}>
+        {manifest ? (
+          <Space vertical spacing={20} className="full-width">
+            <Card className="workspace-card" shadows="hover">
+              <Descriptions
+                align="plain"
+                column={2}
+                data={[
+                  { key: "Repository", value: manifest.repository },
+                  { key: "Reference", value: manifest.reference },
+                  { key: "Digest", value: <code className="inline-code">{manifest.digest}</code>, span: 2 },
+                  { key: "Media type", value: manifest.mediaType },
+                  { key: "Schema version", value: String(manifest.schemaVersion) },
+                  { key: "Tag size", value: formatBytes(manifest.size) }
+                ]}
+              />
+            </Card>
+            <ManifestDescriptors manifest={manifest} />
+            <Card className="workspace-card" shadows="hover" title="Raw JSON">
+              <pre className="raw-json">{JSON.stringify(manifest.raw, null, 2)}</pre>
+            </Card>
+          </Space>
+        ) : null}
+      </Spin>
+    </PageFrame>
   );
 }
 
 function ManifestDescriptors({ manifest }: { manifest: ManifestResponse }) {
-  if (manifest.layers && manifest.layers.length > 0) {
-    return (
-      <section className="descriptor-section">
-        <h3>Layers</h3>
-        <div className="descriptor-list">
-          {manifest.layers.map((layer) => (
-            <div className="descriptor-row" key={layer.digest}>
-              <strong>{layer.digest}</strong>
-              <span>{layer.mediaType}</span>
-              <span>{formatBytes(layer.size)}</span>
-            </div>
-          ))}
-        </div>
-      </section>
-    );
-  }
+  const rows = useMemo<DescriptorRow[]>(() => {
+    const source = manifest.layers && manifest.layers.length > 0
+      ? manifest.layers.map((layer) => ({
+        key: layer.digest,
+        digest: layer.digest,
+        mediaType: layer.mediaType,
+        size: formatBytes(layer.size)
+      }))
+      : (manifest.manifests ?? []).map((entry) => ({
+        key: entry.digest,
+        digest: entry.digest,
+        mediaType: platformLabel(entry),
+        size: formatBytes(entry.size)
+      }));
+    return source;
+  }, [manifest.layers, manifest.manifests]);
 
-  if (manifest.manifests && manifest.manifests.length > 0) {
-    return (
-      <section className="descriptor-section">
-        <h3>Platform Manifests</h3>
-        <p className="muted-text">Child manifests are listed from the index response and are not fetched recursively.</p>
-        <div className="descriptor-list">
-          {manifest.manifests.map((entry) => (
-            <div className="descriptor-row" key={entry.digest}>
-              <strong>{entry.digest}</strong>
-              <span>{platformLabel(entry)}</span>
-              <span>{formatBytes(entry.size)}</span>
-            </div>
-          ))}
-        </div>
-      </section>
-    );
-  }
+  const columns = useMemo(
+    () => [
+      {
+        title: "Digest",
+        dataIndex: "digest",
+        render: (digest: string) => <code className="inline-code">{digest}</code>
+      },
+      {
+        title: manifest.layers && manifest.layers.length > 0 ? "Media type" : "Platform",
+        dataIndex: "mediaType",
+        render: (value: string) => <Text>{value}</Text>
+      },
+      {
+        title: "Size",
+        dataIndex: "size",
+        width: 130
+      }
+    ],
+    [manifest.layers]
+  );
 
-  return <p className="muted-text">No layers or platform manifests were returned.</p>;
+  const title = manifest.layers && manifest.layers.length > 0 ? "Layers" : "Platform manifests";
+  const description = manifest.layers && manifest.layers.length > 0
+    ? undefined
+    : "Child manifests are listed from the index response and are not fetched recursively.";
+
+  return (
+    <Card className="workspace-card" shadows="hover" title={title}>
+      {description ? <Paragraph type="tertiary">{description}</Paragraph> : null}
+      <Table<DescriptorRow>
+        columns={columns}
+        dataSource={rows}
+        empty={<Empty title="No descriptor data" description="The registry did not return layers or platform manifests." />}
+        pagination={false}
+        rowKey="key"
+        size="middle"
+      />
+    </Card>
+  );
 }
 
 function platformLabel(entry: ManifestDescriptor): string {
@@ -653,11 +800,67 @@ function RepositoryDetailPage({ repository }: { repository: string }) {
 
   const filteredTags = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
-    if (!normalizedQuery) {
-      return tags;
-    }
-    return tags.filter((tag) => tag.toLowerCase().includes(normalizedQuery));
-  }, [query, tags]);
+    const source = normalizedQuery ? tags.filter((tag) => tag.toLowerCase().includes(normalizedQuery)) : tags;
+    return source.map<TagRow>((tag) => ({
+      key: tag,
+      tag,
+      command: registryUrl ? pullCommandFor(registryUrl, repository, tag) : "Registry URL loading..."
+    }));
+  }, [query, registryUrl, repository, tags]);
+
+  const columns = useMemo(
+    () => [
+      {
+        title: "Tag",
+        dataIndex: "tag",
+        render: (tag: string, record: TagRow) => (
+          <div className="tag-cell">
+            <Text strong>{tag}</Text>
+            <code>{record.command}</code>
+          </div>
+        )
+      },
+      {
+        title: "Actions",
+        dataIndex: "tag",
+        width: 330,
+        render: (tag: string) => (
+          <Space wrap>
+            <Button
+              component="a"
+              href={`${repositoryPath(repository)}/manifests/${encodeURIComponent(tag)}`}
+              icon={<IconFile />}
+              size="small"
+              theme="light"
+              type="tertiary"
+            >
+              Manifest
+            </Button>
+            <Button
+              icon={<IconCopy />}
+              onClick={() => void copyPullCommand(tag)}
+              size="small"
+              theme="light"
+              type={copiedTag === tag ? "primary" : "tertiary"}
+            >
+              {copiedTag === tag ? "Copied" : "Pull"}
+            </Button>
+            <Button
+              icon={<IconDelete />}
+              loading={deleteLoadingTag === tag}
+              onClick={() => void startDelete(tag)}
+              size="small"
+              theme="light"
+              type="danger"
+            >
+              Delete
+            </Button>
+          </Space>
+        )
+      }
+    ],
+    [copiedTag, deleteLoadingTag, repository]
+  );
 
   async function loadRegistryUrl() {
     const response = await fetch("/api/status");
@@ -727,6 +930,7 @@ function RepositoryDetailPage({ repository }: { repository: string }) {
     const command = pullCommandFor(registryUrl, repository, tag);
     await navigator.clipboard.writeText(command);
     setCopiedTag(tag);
+    Toast.success("Pull command copied.");
   }
 
   async function startDelete(tag: string) {
@@ -792,78 +996,60 @@ function RepositoryDetailPage({ repository }: { repository: string }) {
   }, [repository]);
 
   return (
-    <section className="content-section">
-      <p className="eyebrow">Repository Detail</p>
-      <div className="section-heading">
-        <div>
-          <h2>{repository}</h2>
-          <p className="muted-text">Browse loaded tags and copy pull commands.</p>
-        </div>
-        <div className="toolbar">
-          <a className="secondary-link-button" href="/repositories">Back</a>
-          <button className="secondary-button inline-button" onClick={loadFirstPage} type="button">
+    <PageFrame
+      eyebrow="Repository detail"
+      title={repository}
+      description="Browse loaded tags, copy pull commands, and inspect manifest metadata."
+      actions={
+        <Space>
+          <Button component="a" href="/repositories" icon={<IconChevronLeft />} theme="light" type="tertiary">
+            Back
+          </Button>
+          <Button icon={<IconRefresh />} loading={loading} onClick={loadFirstPage} theme="light" type="tertiary">
             Refresh
-          </button>
-          <button className="inline-button" disabled={!hasNext || loading} onClick={loadAllTags} type="button">
-            Load all tags
-          </button>
+          </Button>
+          <Button disabled={!hasNext || loading} onClick={loadAllTags} theme="solid" type="primary">
+            Load all
+          </Button>
+        </Space>
+      }
+    >
+      <Card className="workspace-card" shadows="hover">
+        <div className="table-toolbar">
+          <Input
+            className="search-input"
+            placeholder="Search loaded tags"
+            prefix={<IconSearch />}
+            showClear
+            value={query}
+            onChange={setQuery}
+          />
+          <Text type="tertiary">{tags.length} loaded</Text>
         </div>
-      </div>
-      <label className="search-field">
-        Search loaded tags
-        <input
-          placeholder="latest"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
+        {error ? <Banner type="danger" description={error} closeIcon={null} /> : null}
+        {deleteError && !deleteTarget ? <Banner type="danger" description={deleteError} closeIcon={null} /> : null}
+        {deleteStatus ? <Banner type="success" description={deleteStatus} closeIcon={null} /> : null}
+        <Table<TagRow>
+          columns={columns}
+          dataSource={filteredTags}
+          empty={<Empty title="No tags found" description="Refresh the repository or adjust the search." />}
+          loading={loading}
+          pagination={false}
+          rowKey="key"
+          size="middle"
         />
-      </label>
-      {error ? <p className="form-error" role="alert">{error}</p> : null}
-      {deleteError && !deleteTarget ? <p className="form-error" role="alert">{deleteError}</p> : null}
-      {deleteStatus ? <p className="status-success" role="status">{deleteStatus}</p> : null}
-      {loading ? <p className="muted-text" role="status">Loading tags...</p> : null}
-      {!loading && !error && filteredTags.length === 0 ? (
-        <p className="muted-text">No tags found.</p>
-      ) : null}
-      {filteredTags.length > 0 ? (
-        <div className="tag-table">
-          <div className="tag-row tag-header">
-            <span>Tag</span>
-            <span>Actions</span>
-          </div>
-          {filteredTags.map((tag) => (
-            <div className="tag-row" key={tag}>
-              <div className="tag-reference">
-                <strong>{tag}</strong>
-                <code>{registryUrl ? pullCommandFor(registryUrl, repository, tag) : "Registry URL loading..."}</code>
-              </div>
-              <div className="row-actions">
-                <a className="secondary-link-button compact-action" href={`${repositoryPath(repository)}/manifests/${encodeURIComponent(tag)}`}>
-                  Manifest
-                </a>
-                <button className="secondary-button compact-action" onClick={() => void copyPullCommand(tag)} type="button">
-                  {copiedTag === tag ? "Copied" : "Pull"}
-                </button>
-                <button className="danger-button compact-action" disabled={deleteLoadingTag === tag} onClick={() => void startDelete(tag)} type="button">
-                  {deleteLoadingTag === tag ? "Resolving..." : "Delete Manifest"}
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
-      ) : null}
-      {deleteTarget ? (
-        <DeleteManifestDialog
-          deleteError={deleteError}
-          deleteInput={deleteInput}
-          deleteTarget={deleteTarget}
-          deleting={deleting}
-          onCancel={closeDeleteDialog}
-          onChangeInput={setDeleteInput}
-          onConfirm={() => void confirmDelete()}
-          repository={repository}
-        />
-      ) : null}
-    </section>
+      </Card>
+      <DeleteManifestDialog
+        deleteError={deleteError}
+        deleteInput={deleteInput}
+        deleteTarget={deleteTarget}
+        deleting={deleting}
+        onCancel={closeDeleteDialog}
+        onChangeInput={setDeleteInput}
+        onConfirm={() => void confirmDelete()}
+        repository={repository}
+      />
+    </PageFrame>
   );
 }
 
@@ -879,52 +1065,60 @@ function DeleteManifestDialog({
 }: {
   deleteError: string;
   deleteInput: string;
-  deleteTarget: DeleteTarget;
+  deleteTarget: DeleteTarget | null;
   deleting: boolean;
   onCancel: () => void;
   onChangeInput: (value: string) => void;
   onConfirm: () => void;
   repository: string;
 }) {
-  const operation = `DELETE /v2/${repository}/manifests/${deleteTarget.digest}`;
-  const canDelete = deleteInput === deleteTarget.tag && !deleting;
+  const operation = deleteTarget ? `DELETE /v2/${repository}/manifests/${deleteTarget.digest}` : "";
+  const canDelete = Boolean(deleteTarget) && deleteInput === deleteTarget?.tag && !deleting;
 
   return (
-    <div className="dialog-backdrop" role="presentation">
-      <section aria-modal="true" className="dialog-panel" role="dialog" aria-labelledby="delete-dialog-title">
-        <p className="eyebrow">Delete Manifest</p>
-        <h3 id="delete-dialog-title">Confirm digest deletion</h3>
-        <div className="delete-summary">
-          <StatusItem label="Repository" value={repository} />
-          <StatusItem label="Tag" value={deleteTarget.tag} />
-          <StatusItem label="Digest" value={deleteTarget.digest} />
-          <StatusItem label="Operation" value={operation} />
-        </div>
-        <div className="delete-warning">
-          <p>This deletes the manifest digest currently referenced by this tag.</p>
-          <p>Other tags pointing to the same digest may be affected.</p>
-          <p>Disk space is not released until external Registry garbage collection runs.</p>
-        </div>
-        <label>
-          Type tag name to confirm
-          <input
-            autoFocus
-            value={deleteInput}
-            onChange={(event) => onChangeInput(event.target.value)}
-            placeholder={deleteTarget.tag}
+    <Modal
+      cancelText="Cancel"
+      centered
+      confirmLoading={deleting}
+      hasCancel
+      okButtonProps={{ disabled: !canDelete, type: "danger" }}
+      okText="Delete manifest"
+      title="Confirm digest deletion"
+      visible={Boolean(deleteTarget)}
+      width={720}
+      onCancel={onCancel}
+      onOk={onConfirm}
+    >
+      {deleteTarget ? (
+        <Space vertical spacing={16} className="full-width">
+          <Descriptions
+            align="plain"
+            column={1}
+            data={[
+              { key: "Repository", value: repository },
+              { key: "Tag", value: deleteTarget.tag },
+              { key: "Digest", value: <code className="inline-code">{deleteTarget.digest}</code> },
+              { key: "Operation", value: <code className="inline-code">{operation}</code> }
+            ]}
           />
-        </label>
-        {deleteError ? <p className="form-error" role="alert">{deleteError}</p> : null}
-        <div className="dialog-actions">
-          <button className="secondary-button inline-button" disabled={deleting} onClick={onCancel} type="button">
-            Cancel
-          </button>
-          <button className="danger-button inline-button" disabled={!canDelete} onClick={onConfirm} type="button">
-            {deleting ? "Deleting..." : "Delete"}
-          </button>
-        </div>
-      </section>
-    </div>
+          <Banner
+            type="warning"
+            closeIcon={null}
+            description="This deletes the manifest digest currently referenced by this tag. Other tags pointing to the same digest may be affected. Disk space is not released until external Registry garbage collection runs."
+          />
+          <FieldLabel label="Type tag name to confirm">
+            <Input
+              autoFocus
+              placeholder={deleteTarget.tag}
+              value={deleteInput}
+              validateStatus={deleteInput && deleteInput !== deleteTarget.tag ? "warning" : "default"}
+              onChange={onChangeInput}
+            />
+          </FieldLabel>
+          {deleteError ? <Banner type="danger" description={deleteError} closeIcon={null} /> : null}
+        </Space>
+      ) : null}
+    </Modal>
   );
 }
 
@@ -987,36 +1181,51 @@ function OverviewPage() {
   }, []);
 
   return (
-    <section className="content-section">
-      <p className="eyebrow">Overview</p>
-      <h2>Overview</h2>
-      {error ? <p className="form-error" role="alert">{error}</p> : null}
+    <PageFrame
+      eyebrow="Overview"
+      title="Registry overview"
+      description="Current wrapper connectivity, Registry authentication, and operational capability."
+    >
+      {error ? <Banner type="danger" description={error} closeIcon={null} /> : null}
       {status ? (
-        <>
+        <Space vertical spacing={20} className="full-width">
           {status.insecureTLS ? <InsecureTLSWarning /> : null}
-          <div className="status-grid">
-            <StatusItem label="Registry URL" value={status.registryUrl} />
-            <StatusItem label="API Status" value={status.available ? "Available" : "Unavailable"} />
-            <StatusItem label="Authentication" value={status.authenticated ? "Authenticated" : "Not authenticated"} />
-            <StatusItem label="Repository Count" value="Not loaded yet" />
-            <StatusItem label="Page Size" value={String(status.pageSize)} />
-            <StatusItem label="Delete Capability" value={status.deleteCapability} />
+          <div className="metric-grid">
+            <MetricCard label="API status" value={status.available ? "Available" : "Unavailable"} tone={status.available ? "green" : "red"} />
+            <MetricCard label="Authentication" value={status.authenticated ? "Authenticated" : "Not authenticated"} tone={status.authenticated ? "green" : "orange"} />
+            <MetricCard label="Page size" value={String(status.pageSize)} />
+            <MetricCard label="Delete capability" value={status.deleteCapability} tone={status.deleteCapability === "available" ? "orange" : "grey"} />
           </div>
-        </>
-      ) : null}
+          <Card className="workspace-card" shadows="hover" title="Connection">
+            <Descriptions
+              align="plain"
+              column={2}
+              data={[
+                { key: "Registry URL", value: status.registryUrl, span: 2 },
+                { key: "Request timeout", value: status.requestTimeout },
+                { key: "Insecure TLS", value: status.insecureTLS ? "Enabled" : "Disabled" }
+              ]}
+            />
+          </Card>
+        </Space>
+      ) : (
+        <Card className="workspace-card">
+          <Spin />
+        </Card>
+      )}
       {status?.error ? (
-        <div className="status-error" role="status">
-          <strong>{status.error.message}</strong>
-          <span>
+        <Card className="error-card" shadows="hover" title="Registry error">
+          <Text strong>{status.error.message}</Text>
+          <Text type="tertiary">
             {status.error.code}
             {status.error.registryStatus ? ` / Registry ${status.error.registryStatus}` : ""}
-          </span>
+          </Text>
           {status.error.registryErrors && status.error.registryErrors.length > 0 ? (
-            <pre>{JSON.stringify(status.error.registryErrors, null, 2)}</pre>
+            <pre className="raw-json compact">{JSON.stringify(status.error.registryErrors, null, 2)}</pre>
           ) : null}
-        </div>
+        </Card>
       ) : null}
-    </section>
+    </PageFrame>
   );
 }
 
@@ -1052,39 +1261,103 @@ function SettingsPage() {
   }, []);
 
   return (
-    <section className="content-section">
-      <p className="eyebrow">Settings</p>
-      <h2>Settings</h2>
-      {error ? <p className="form-error" role="alert">{error}</p> : null}
+    <PageFrame
+      eyebrow="Settings"
+      title="Runtime settings"
+      description="Read-only wrapper configuration reported by the backend."
+    >
+      {error ? <Banner type="danger" description={error} closeIcon={null} /> : null}
       {status ? (
-        <>
+        <Space vertical spacing={20} className="full-width">
           {status.insecureTLS ? <InsecureTLSWarning /> : null}
-          <div className="status-grid">
-            <StatusItem label="Registry URL" value={status.registryUrl} />
-            <StatusItem label="Page Size" value={String(status.pageSize)} />
-            <StatusItem label="Request Timeout" value={status.requestTimeout} />
-            <StatusItem label="Insecure TLS" value={status.insecureTLS ? "Enabled" : "Disabled"} />
-            <StatusItem label="Mode" value="Read-only" />
-          </div>
-        </>
-      ) : null}
-    </section>
+          <Card className="workspace-card" shadows="hover">
+            <Descriptions
+              align="plain"
+              column={2}
+              data={[
+                { key: "Registry URL", value: status.registryUrl, span: 2 },
+                { key: "Page size", value: String(status.pageSize) },
+                { key: "Request timeout", value: status.requestTimeout },
+                { key: "Insecure TLS", value: status.insecureTLS ? "Enabled" : "Disabled" },
+                { key: "Mode", value: "Read-only" }
+              ]}
+            />
+          </Card>
+        </Space>
+      ) : (
+        <Card className="workspace-card">
+          <Spin />
+        </Card>
+      )}
+    </PageFrame>
   );
 }
 
 function InsecureTLSWarning() {
   return (
-    <div className="warning-banner" role="status">
-      Insecure TLS is enabled for Registry connections.
-    </div>
+    <Banner
+      closeIcon={null}
+      icon={<IconAlertTriangle />}
+      type="warning"
+      description="Insecure TLS is enabled for Registry connections."
+    />
   );
 }
 
-function StatusItem({ label, value }: { label: string; value: string }) {
+function PageFrame({
+  actions,
+  children,
+  description,
+  eyebrow,
+  title
+}: {
+  actions?: ReactNode;
+  children: ReactNode;
+  description: string;
+  eyebrow: string;
+  title: string;
+}) {
   return (
-    <div className="status-item">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </div>
+    <section className="page-frame">
+      <div className="page-heading">
+        <div>
+          <Tag color="teal" size="large">{eyebrow}</Tag>
+          <Title heading={2}>{title}</Title>
+          <Paragraph type="tertiary">{description}</Paragraph>
+        </div>
+        {actions ? <div className="page-actions">{actions}</div> : null}
+      </div>
+      <Space vertical spacing={20} className="full-width">
+        {children}
+      </Space>
+    </section>
+  );
+}
+
+function FieldLabel({ children, label }: { children: ReactNode; label: string }) {
+  return (
+    <label className="field-label">
+      <Text strong>{label}</Text>
+      {children}
+    </label>
+  );
+}
+
+function MetricCard({
+  label,
+  tone = "blue",
+  value
+}: {
+  label: string;
+  tone?: "blue" | "green" | "grey" | "orange" | "red";
+  value: string;
+}) {
+  return (
+    <Card className="metric-card" shadows="hover">
+      <Text type="tertiary">{label}</Text>
+      <div className="metric-value">
+        <Tag color={tone}>{value}</Tag>
+      </div>
+    </Card>
   );
 }

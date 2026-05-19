@@ -6,6 +6,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@douyinfe/semi-icons": "^2.97.0",
+    "@douyinfe/semi-ui-19": "^2.97.0",
     "@vitejs/plugin-react": "^5.1.1",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
