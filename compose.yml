@@ -1,0 +1,29 @@
+services:
+  registry:
+    image: registry:3
+    ports:
+      - "5000:5000"
+    volumes:
+      - registry-data:/var/lib/registry
+    restart: unless-stopped
+
+  registry-webui:
+    build: .
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "3000:3000"
+    environment:
+      REGISTRY_URL: ${REGISTRY_URL:-http://registry:5000}
+      REGISTRY_USERNAME: ${REGISTRY_USERNAME:-}
+      REGISTRY_PASSWORD: ${REGISTRY_PASSWORD:-}
+      REGISTRY_INSECURE_TLS: ${REGISTRY_INSECURE_TLS:-false}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-me}
+    depends_on:
+      - registry
+    restart: unless-stopped
+
+volumes:
+  registry-data:

@@ -1,3 +1,11 @@
+.env
+
+/registry-webui
+
+.omc/
+
+web/node_modules/
+web/dist/
+
 .cache/
 .playwright-mcp/
-web/node_modules/
