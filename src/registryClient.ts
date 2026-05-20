@@ -111,7 +111,7 @@ export function registryConfigFromEnv(env: Record<string, unknown>): RegistryCon
     registryUrl,
     username: stringValue(env.VITE_REGISTRY_USERNAME),
     password: stringValue(env.VITE_REGISTRY_PASSWORD),
-    pageSize: numberValue(env.VITE_REGISTRY_PAGE_SIZE, DEFAULT_PAGE_SIZE),
+    pageSize: DEFAULT_PAGE_SIZE,
     requestTimeoutSeconds: numberValue(env.VITE_REGISTRY_REQUEST_TIMEOUT_SECONDS, DEFAULT_TIMEOUT_SECONDS)
   };
 }

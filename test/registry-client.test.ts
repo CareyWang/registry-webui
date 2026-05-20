@@ -15,7 +15,7 @@ function jsonResponse(body: unknown, init: ResponseInit = {}) {
   });
 }
 
-test("reads optional public registry settings from Vite env", () => {
+test("reads only deploy-level public registry settings from Vite env", () => {
   const config = registryConfigFromEnv({
     VITE_REGISTRY_URL: "https://registry.example.com/",
     VITE_REGISTRY_USERNAME: "robot",
@@ -28,7 +28,7 @@ test("reads optional public registry settings from Vite env", () => {
     registryUrl: "https://registry.example.com",
     username: "robot",
     password: "secret",
-    pageSize: 250,
+    pageSize: 100,
     requestTimeoutSeconds: 12
   });
 });

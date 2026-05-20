@@ -44,7 +44,6 @@ You can also provide public build-time defaults with Vite variables:
 | `VITE_REGISTRY_URL` | Optional default Registry URL. |
 | `VITE_REGISTRY_USERNAME` | Optional default Basic Auth username. |
 | `VITE_REGISTRY_PASSWORD` | Optional default Basic Auth password or token. Avoid this for shared deployments. |
-| `VITE_REGISTRY_PAGE_SIZE` | Optional default page size. |
 | `VITE_REGISTRY_REQUEST_TIMEOUT_SECONDS` | Optional default request timeout in seconds. |
 
 ## Docker Registry configuration
