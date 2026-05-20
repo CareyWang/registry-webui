@@ -51,7 +51,9 @@ You can also provide public build-time defaults with Vite variables:
 
 Because requests come directly from the browser, the Registry must be reachable from the user's browser, not only from the Web UI container or server. For example, if the UI is opened at `https://ui.example.com`, the browser must be able to reach the Registry URL entered in the connection dialog.
 
-The Registry must allow the Web UI origin and expose the headers used by Registry API V2 pagination and manifest inspection:
+The recommended production pattern is to expose the Registry API V2 endpoint through Nginx and put the CORS policy on that reverse proxy. Configure the app's Registry URL as the public proxy origin, for example `https://registry.example.com`, not the internal `http://registry:5000` service address.
+
+The proxy must allow the Web UI origin and expose the headers used by Registry API V2 pagination and manifest inspection:
 
 ```text
 Access-Control-Allow-Origin: https://your-web-ui.example.com
@@ -60,56 +62,44 @@ Access-Control-Allow-Headers: Authorization, Accept, Content-Type
 Access-Control-Expose-Headers: Link, Docker-Content-Digest, Content-Type, Content-Length
 ```
 
-Use an explicit origin instead of `*` for shared or production deployments. If you deploy the UI at multiple origins, add each trusted origin at your Registry or reverse proxy layer.
+Use an explicit origin instead of `*` for shared or production deployments. If you deploy the UI at multiple origins, add each trusted origin in the Nginx policy.
 
-For the official `registry:3` image, these environment variables are enough for a single Web UI origin:
-
-```yaml
-services:
-  registry:
-    image: registry:3
-    environment:
-      REGISTRY_STORAGE_DELETE_ENABLED: "true"
-      REGISTRY_HTTP_HEADERS_Access-Control-Allow-Origin: '["https://your-web-ui.example.com"]'
-      REGISTRY_HTTP_HEADERS_Access-Control-Allow-Methods: '["HEAD", "GET", "OPTIONS", "DELETE"]'
-      REGISTRY_HTTP_HEADERS_Access-Control-Allow-Headers: '["Authorization", "Accept", "Content-Type"]'
-      REGISTRY_HTTP_HEADERS_Access-Control-Expose-Headers: '["Link", "Docker-Content-Digest", "Content-Type", "Content-Length"]'
-```
-
-The equivalent `config.yml` section is:
-
-```yaml
-version: 0.1
-http:
-  headers:
-    Access-Control-Allow-Origin: ["https://your-web-ui.example.com"]
-    Access-Control-Allow-Methods: ["HEAD", "GET", "OPTIONS", "DELETE"]
-    Access-Control-Allow-Headers: ["Authorization", "Accept", "Content-Type"]
-    Access-Control-Expose-Headers: ["Link", "Docker-Content-Digest", "Content-Type", "Content-Length"]
-storage:
-  delete:
-    enabled: true
-```
-
-`storage.delete.enabled` is only required for manifest deletion. Browsing repositories, tags, and manifests works without it.
-
-If a reverse proxy sits in front of the Registry, put the CORS headers there instead. The proxy must also answer browser preflight `OPTIONS` requests before forwarding ordinary Registry API calls. A minimal Nginx location looks like this:
+A minimal Nginx reverse proxy for the official `registry:3` service looks like this:
 
 ```nginx
-location /v2/ {
-  if ($request_method = OPTIONS) {
-    add_header Access-Control-Allow-Origin "https://your-web-ui.example.com" always;
-    add_header Access-Control-Allow-Methods "HEAD, GET, OPTIONS, DELETE" always;
-    add_header Access-Control-Allow-Headers "Authorization, Accept, Content-Type" always;
-    add_header Access-Control-Max-Age 86400 always;
-    return 204;
-  }
+server {
+  listen 443 ssl http2;
+  server_name registry.example.com;
 
-  add_header Access-Control-Allow-Origin "https://your-web-ui.example.com" always;
-  add_header Access-Control-Expose-Headers "Link, Docker-Content-Digest, Content-Type, Content-Length" always;
-  proxy_pass http://registry:5000;
+  # ssl_certificate /etc/nginx/certs/registry.example.com.crt;
+  # ssl_certificate_key /etc/nginx/certs/registry.example.com.key;
+
+  client_max_body_size 0;
+
+  location /v2/ {
+    if ($request_method = OPTIONS) {
+      add_header Access-Control-Allow-Origin "https://your-web-ui.example.com" always;
+      add_header Access-Control-Allow-Methods "HEAD, GET, OPTIONS, DELETE" always;
+      add_header Access-Control-Allow-Headers "Authorization, Accept, Content-Type" always;
+      add_header Access-Control-Max-Age 86400 always;
+      add_header Content-Length 0 always;
+      return 204;
+    }
+
+    add_header Access-Control-Allow-Origin "https://your-web-ui.example.com" always;
+    add_header Access-Control-Expose-Headers "Link, Docker-Content-Digest, Content-Type, Content-Length" always;
+
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_pass http://registry:5000;
+  }
 }
 ```
+
+`REGISTRY_STORAGE_DELETE_ENABLED=true` or `storage.delete.enabled: true` is only required for manifest deletion on the upstream Registry. Browsing repositories, tags, and manifests works without it. If you do not run Nginx or another reverse proxy, apply the same CORS headers directly in the Registry's `http.headers` configuration instead.
 
 If the Registry uses a self-signed certificate, the certificate must be trusted by the user's browser or the browser will block the request before the app can handle it. A frontend-only app cannot disable TLS verification.
 
