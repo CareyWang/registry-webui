@@ -10,7 +10,7 @@ import (
 	"github.com/careywong/registry-webui/internal/api"
 )
 
-const sessionCookieName = "registry_webui_session"
+const sessionCookieName = "registry-webui_session"
 
 type AuthConfig struct {
 	Username string
