@@ -1,11 +1,14 @@
 .git
 .gitignore
 
-Dockerfile
 .dockerignore
 
-web/node_modules
-web/dist
+node_modules
+dist
+.pnpm-store
+.omc
+.playwright-mcp
+.cache
 
 *.log
 .DS_Store

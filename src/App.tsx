@@ -53,88 +53,25 @@ import {
   t as translate,
   TranslationKey
 } from "./i18n";
+import {
+  ApiErrorPayload,
+  createRegistryClient,
+  DeleteManifestResponse,
+  DigestResponse,
+  ManifestDescriptor,
+  ManifestResponse,
+  RegistryClient,
+  RegistryConnectionConfig,
+  RegistryError,
+  RepositoryResponse,
+  normalizeRegistryUrl,
+  registryConfigFromEnv,
+  StatusResponse,
+  TagsResponse
+} from "./registryClient";
 import "./styles.css";
 
-type AuthState = "checking" | "authenticated" | "anonymous";
-type Page = "login" | "overview" | "repositories" | "settings";
-type StatusResponse = {
-  registryUrl: string;
-  available: boolean;
-  authenticated: boolean;
-  pageSize: number;
-  requestTimeout: string;
-  insecureTLS: boolean;
-  deleteCapability: "unknown" | "available" | "unavailable";
-  error?: {
-    code: string;
-    message: string;
-    status: number;
-    registryStatus?: number;
-    registryErrors?: RegistryError[];
-  };
-};
-type RegistryError = {
-  code: string;
-  message: string;
-  detail?: unknown;
-};
-type RepositoryResponse = {
-  repositories: string[];
-  pagination: {
-    next?: string;
-    hasNext: boolean;
-  };
-};
-type TagsResponse = {
-  repository: string;
-  tags: string[];
-  pagination: {
-    next?: string;
-    hasNext: boolean;
-  };
-};
-type ManifestDescriptor = {
-  mediaType: string;
-  size: number;
-  digest: string;
-  platform?: {
-    architecture?: string;
-    os?: string;
-    variant?: string;
-  };
-};
-type ManifestResponse = {
-  repository: string;
-  reference: string;
-  digest: string;
-  mediaType: string;
-  schemaVersion: number;
-  size: number;
-  layers?: ManifestDescriptor[];
-  manifests?: ManifestDescriptor[];
-  raw: unknown;
-};
-type DigestResponse = {
-  repository: string;
-  reference: string;
-  digest: string;
-  contentType: string;
-};
-type DeleteManifestResponse = {
-  deleted: boolean;
-  repository: string;
-  digest: string;
-  status: number;
-};
-type ApiErrorResponse = {
-  error?: {
-    code: string;
-    message: string;
-    status: number;
-    registryStatus?: number;
-    registryErrors?: RegistryError[];
-  };
-};
+type Page = "overview" | "repositories" | "settings";
 type DeleteTarget = {
   tag: string;
   digest: string;
@@ -158,8 +95,8 @@ type DescriptorRow = {
 
 const { Content, Header, Sider } = Layout;
 const { Text, Title, Paragraph } = Typography;
-const protectedPages = new Set<Page>(["overview", "repositories", "settings"]);
 const languageStorageKey = "registry-webui-language";
+const connectionStorageKey = "registry-webui-connection";
 
 type I18nContextValue = {
   language: Language;
@@ -168,11 +105,25 @@ type I18nContextValue = {
 };
 
 const I18nContext = createContext<I18nContextValue | null>(null);
+const RegistryConnectionContext = createContext<{
+  client: RegistryClient;
+  config: RegistryConnectionConfig;
+  onClearConnection: () => void;
+  onEditConnection: () => void;
+} | null>(null);
 
 function useI18n(): I18nContextValue {
   const context = useContext(I18nContext);
   if (!context) {
     throw new Error("useI18n must be used within I18nProvider.");
+  }
+  return context;
+}
+
+function useRegistryConnection() {
+  const context = useContext(RegistryConnectionContext);
+  if (!context) {
+    throw new Error("useRegistryConnection must be used within RegistryConnectionProvider.");
   }
   return context;
 }
@@ -204,6 +155,57 @@ function I18nProvider({ children }: { children: ReactNode }) {
   return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
 }
 
+function readStoredConnection(): RegistryConnectionConfig | null {
+  try {
+    const raw = window.localStorage.getItem(connectionStorageKey);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as Partial<RegistryConnectionConfig>;
+    const registryUrl = normalizeRegistryUrl(String(parsed.registryUrl ?? ""));
+    if (!registryUrl) {
+      return null;
+    }
+    return {
+      registryUrl,
+      username: typeof parsed.username === "string" ? parsed.username : "",
+      password: typeof parsed.password === "string" ? parsed.password : "",
+      pageSize: Number.isFinite(parsed.pageSize) && parsed.pageSize ? parsed.pageSize : 100,
+      requestTimeoutSeconds: Number.isFinite(parsed.requestTimeoutSeconds) && parsed.requestTimeoutSeconds
+        ? parsed.requestTimeoutSeconds
+        : 30
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredConnection(config: RegistryConnectionConfig) {
+  try {
+    window.localStorage.setItem(connectionStorageKey, JSON.stringify(config));
+  } catch {
+    // The app can still run with the in-memory connection for this tab.
+  }
+}
+
+function clearStoredConnection() {
+  try {
+    window.localStorage.removeItem(connectionStorageKey);
+  } catch {
+    // Ignore storage errors; clearing in-memory state is enough for the UI.
+  }
+}
+
+function defaultConnectionConfig(config: RegistryConnectionConfig | null): RegistryConnectionConfig {
+  return config ?? {
+    registryUrl: "",
+    username: "",
+    password: "",
+    pageSize: 100,
+    requestTimeoutSeconds: 30
+  };
+}
+
 function loadedText(language: Language, count: number): string {
   return `${count} ${translate(language, "common.loaded")}`;
 }
@@ -225,16 +227,10 @@ function pageFromPath(pathname: string): Page {
   if (pathname.startsWith("/settings")) {
     return "settings";
   }
-  if (pathname.startsWith("/login")) {
-    return "login";
-  }
   return "overview";
 }
 
 function pathForPage(page: Page): string {
-  if (page === "login") {
-    return "/login";
-  }
   return `/${page}`;
 }
 
@@ -302,56 +298,17 @@ export function App() {
 function AppContent() {
   const { t } = useI18n();
   const [page, setPage] = useState<Page>(() => pageFromPath(window.location.pathname));
-  const [authState, setAuthState] = useState<AuthState>("checking");
+  const [config, setConfigState] = useState<RegistryConnectionConfig | null>(() => (
+    readStoredConnection() ?? registryConfigFromEnv((import.meta as ImportMeta & { env?: Record<string, unknown> }).env ?? {})
+  ));
+  const [connectionDialogVisible, setConnectionDialogVisible] = useState(() => config === null);
+  const client = useMemo(() => (config ? createRegistryClient({ config }) : null), [config]);
 
   useEffect(() => {
     const onPopState = () => setPage(pageFromPath(window.location.pathname));
     window.addEventListener("popstate", onPopState);
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
-
-  useEffect(() => {
-    let active = true;
-
-    async function checkAuth() {
-      const response = await fetch("/api/session");
-      if (!active) {
-        return;
-      }
-
-      const body = (await response.json()) as { authenticated?: boolean };
-      if (!active) {
-        return;
-      }
-
-      if (body.authenticated) {
-        setAuthState("authenticated");
-        if (page === "login") {
-          navigate("overview", true);
-        }
-        return;
-      }
-
-      if (protectedPages.has(page)) {
-        setAuthState("anonymous");
-        navigate("login", true);
-        return;
-      }
-
-      setAuthState("anonymous");
-    }
-
-    void checkAuth().catch(() => {
-      if (active) {
-        setAuthState("anonymous");
-        navigate("login", true);
-      }
-    });
-
-    return () => {
-      active = false;
-    };
-  }, [page]);
 
   function navigate(nextPage: Page, replace = false) {
     const nextPath = pathForPage(nextPage);
@@ -365,151 +322,210 @@ function AppContent() {
     setPage(nextPage);
   }
 
-  async function logout() {
-    await fetch("/api/session", { method: "DELETE" });
-    setAuthState("anonymous");
-    navigate("login");
+  function saveConnection(nextConfig: RegistryConnectionConfig) {
+    setConfigState(nextConfig);
+    writeStoredConnection(nextConfig);
+    setConnectionDialogVisible(false);
   }
 
-  if (authState === "checking" && protectedPages.has(page)) {
+  function clearConnection() {
+    setConfigState(null);
+    clearStoredConnection();
+    setConnectionDialogVisible(true);
+    navigate("overview", true);
+  }
+
+  if (!client || !config) {
     return (
-      <main className="centered-shell">
-        <Card className="checking-card">
-          <Spin size="large" />
-          <Text type="tertiary">{t("common.checkingSession")}</Text>
-        </Card>
-      </main>
+      <>
+        <main className="centered-shell">
+          <Card className="connection-required-card" shadows="hover">
+            <Space vertical spacing={12} className="full-width">
+              <Avatar color="teal" size="large">
+                <IconServer />
+              </Avatar>
+              <Title heading={3}>{t("connection.requiredTitle")}</Title>
+              <Text type="tertiary">{t("connection.requiredDescription")}</Text>
+            </Space>
+          </Card>
+        </main>
+        <ConnectionDialog
+          config={config}
+          force
+          visible={connectionDialogVisible}
+          onCancel={() => setConnectionDialogVisible(false)}
+          onSave={saveConnection}
+        />
+      </>
     );
-  }
-
-  if (page === "login" || authState === "anonymous") {
-    return (
-      <LoginPage
-        onAuthenticated={() => {
-          setAuthState("authenticated");
-          navigate("overview", true);
-        }}
-      />
-    );
-  }
-
-  return <AppShell activePage={page} onNavigate={navigate} onLogout={logout} />;
-}
-
-function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) {
-  const { language, setLanguage, t } = useI18n();
-  const [username, setUsername] = useState("admin");
-  const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setSubmitting(true);
-    setError("");
-
-    try {
-      const response = await fetch("/api/session", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password })
-      });
-
-      if (!response.ok) {
-        setError(t("errors.invalidCredentials"));
-        return;
-      }
-
-      onAuthenticated();
-    } catch {
-      setError(t("errors.serviceUnavailable"));
-    } finally {
-      setSubmitting(false);
-    }
   }
 
   return (
-    <main className="login-shell">
-      <div className="login-language">
-        <Select
-          aria-label={t("language.switcherLabel")}
-          optionList={[
-            { label: "English", value: "en" },
-            { label: "中文", value: "zh" }
-          ]}
-          size="small"
-          value={language}
-          onChange={(value) => setLanguage(normalizeLanguage(value))}
+    <RegistryConnectionContext.Provider
+      value={{
+        client,
+        config,
+        onClearConnection: clearConnection,
+        onEditConnection: () => setConnectionDialogVisible(true)
+      }}
+    >
+      <AppShell
+        activePage={page}
+        onNavigate={navigate}
+      />
+      <ConnectionDialog
+        config={config}
+        visible={connectionDialogVisible}
+        onCancel={() => setConnectionDialogVisible(false)}
+        onSave={saveConnection}
+      />
+    </RegistryConnectionContext.Provider>
+  );
+}
+
+function ConnectionDialog({
+  config,
+  force = false,
+  visible,
+  onCancel,
+  onSave
+}: {
+  config: RegistryConnectionConfig | null;
+  force?: boolean;
+  visible: boolean;
+  onCancel: () => void;
+  onSave: (config: RegistryConnectionConfig) => void;
+}) {
+  const { t } = useI18n();
+  const [draft, setDraft] = useState<RegistryConnectionConfig>(() => defaultConnectionConfig(config));
+  const [testing, setTesting] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (visible) {
+      setDraft(defaultConnectionConfig(config));
+      setError("");
+    }
+  }, [config, visible]);
+
+  async function submit(event?: FormEvent<HTMLFormElement>) {
+    event?.preventDefault();
+    const normalizedConfig = {
+      ...draft,
+      registryUrl: normalizeRegistryUrl(draft.registryUrl),
+      pageSize: clampNumber(draft.pageSize, 10, 1000, 100),
+      requestTimeoutSeconds: clampNumber(draft.requestTimeoutSeconds, 1, 300, 30)
+    };
+
+    if (!normalizedConfig.registryUrl) {
+      setError(t("connection.invalidUrl"));
+      return;
+    }
+
+    setTesting(true);
+    setError("");
+    try {
+      const testClient = createRegistryClient({ config: normalizedConfig });
+      const status = await testClient.status();
+      if (!status.available || !status.authenticated) {
+        setError(status.error ? formatApiError(status.error, t("connection.testFailed")) : t("connection.testFailed"));
+        return;
+      }
+      onSave(normalizedConfig);
+    } catch (exception) {
+      setError(formatApiException(exception, t("connection.testFailed")));
+    } finally {
+      setTesting(false);
+    }
+  }
+
+  function updateDraft<K extends keyof RegistryConnectionConfig>(key: K, value: RegistryConnectionConfig[K]) {
+    setDraft((current) => ({ ...current, [key]: value }));
+  }
+
+  return (
+    <Modal
+      cancelText={force ? undefined : t("actions.cancel")}
+      centered
+      closable={!force}
+      confirmLoading={testing}
+      hasCancel={!force}
+      maskClosable={!force}
+      okText={t("actions.testAndSave")}
+      title={t("connection.title")}
+      visible={visible}
+      width={640}
+      onCancel={force ? undefined : onCancel}
+      onOk={() => void submit()}
+    >
+      <form className="semi-form-stack compact-form" onSubmit={(event) => void submit(event)}>
+        <Banner
+          closeIcon={null}
+          type="info"
+          description={t("connection.corsNotice")}
         />
-      </div>
-      <section className="login-visual" aria-label={t("app.product")}>
-        <Tag color="teal" prefixIcon={<IconServer />}>{t("app.product")} v0.1</Tag>
-        <div>
-          <Title className="login-title" heading={1}>{t("app.name")}</Title>
-          <Paragraph>
-            {t("app.tagline")}
-          </Paragraph>
-        </div>
-        <Card className="workspace-card" shadows="hover">
-          <Descriptions
-            align="plain"
-            column={3}
-            data={[
-              { key: t("common.mode"), value: t("common.readFirst") },
-              { key: t("common.api"), value: "V2" },
-              { key: t("common.deleteMode"), value: t("common.guarded") }
-            ]}
-          />
-        </Card>
-      </section>
-
-      <Card className="login-card" shadows="always">
-        <Space vertical align="start" spacing={8} className="full-width">
-          <Avatar color="teal" size="extra-large">
-            <IconLock size="extra-large" />
-          </Avatar>
-          <Title heading={3}>{t("actions.signIn")}</Title>
-          <Text type="tertiary">{t("login.credentialsHint")}</Text>
-        </Space>
-
-        <form className="semi-form-stack" onSubmit={submit}>
-          <Form.Label text={t("login.username")} />
-          <Input
-            autoComplete="username"
-            prefix={<IconServer />}
-            size="large"
-            value={username}
-            onChange={setUsername}
-          />
-          <Form.Label text={t("login.password")} />
-          <Input
-            autoComplete="current-password"
-            mode="password"
-            prefix={<IconLock />}
-            size="large"
-            value={password}
-            onChange={setPassword}
-          />
-          {error ? <Banner type="danger" description={error} closeIcon={null} /> : null}
-          <Button block htmlType="submit" loading={submitting} size="large" theme="solid" type="primary">
-            {t("actions.signIn")}
-          </Button>
-        </form>
-      </Card>
-    </main>
+        <Form.Label text={t("common.registryUrl")} />
+        <Input
+          autoFocus
+          placeholder="https://registry.example.com"
+          prefix={<IconServer />}
+          value={draft.registryUrl}
+          onChange={(value) => updateDraft("registryUrl", value)}
+        />
+        <Row gutter={12}>
+          <Col span={12}>
+            <Form.Label text={t("login.username")} />
+            <Input
+              autoComplete="username"
+              placeholder="robot"
+              value={draft.username ?? ""}
+              onChange={(value) => updateDraft("username", value)}
+            />
+          </Col>
+          <Col span={12}>
+            <Form.Label text={t("login.password")} />
+            <Input
+              autoComplete="current-password"
+              mode="password"
+              placeholder={t("connection.optionalPassword")}
+              value={draft.password ?? ""}
+              onChange={(value) => updateDraft("password", value)}
+            />
+          </Col>
+        </Row>
+        <Row gutter={12}>
+          <Col span={12}>
+            <Form.Label text={t("common.pageSize")} />
+            <Input
+              value={String(draft.pageSize)}
+              onChange={(value) => updateDraft("pageSize", Number(value))}
+            />
+          </Col>
+          <Col span={12}>
+            <Form.Label text={t("common.requestTimeout")} />
+            <Input
+              suffix="s"
+              value={String(draft.requestTimeoutSeconds)}
+              onChange={(value) => updateDraft("requestTimeoutSeconds", Number(value))}
+            />
+          </Col>
+        </Row>
+        {error ? <Banner type="danger" description={error} closeIcon={null} /> : null}
+        <button className="hidden-submit" type="submit" aria-hidden="true" tabIndex={-1} />
+      </form>
+    </Modal>
   );
 }
 
 function AppShell({
   activePage,
-  onNavigate,
-  onLogout
+  onNavigate
 }: {
   activePage: Page;
   onNavigate: (page: Page) => void;
-  onLogout: () => void;
 }) {
   const { language, setLanguage, t } = useI18n();
+  const connection = useContext(RegistryConnectionContext);
   const navigation = useMemo(
     () => [
       { itemKey: "overview", text: t("nav.overview"), icon: <IconHome /> },
@@ -526,15 +542,17 @@ function AppShell({
           bodyStyle={{ flex: 1 }}
           className="app-nav"
           footer={
-            <Button
-              block
-              icon={<IconExit />}
-              onClick={onLogout}
-              theme="borderless"
-              type="tertiary"
-            >
-              {t("actions.signOut")}
-            </Button>
+            connection ? (
+              <Button
+                block
+                icon={<IconExit />}
+                onClick={connection.onClearConnection}
+                theme="borderless"
+                type="tertiary"
+              >
+                {t("actions.disconnect")}
+              </Button>
+            ) : null
           }
           header={{
             logo: (
@@ -557,6 +575,11 @@ function AppShell({
           </div>
           <Space>
             <Tag color="green" prefixIcon={<IconTerminal />}>{t("app.registryVersion")}</Tag>
+            {connection ? (
+              <Button icon={<IconSetting />} onClick={connection.onEditConnection} size="small" theme="light" type="tertiary">
+                {t("actions.connection")}
+              </Button>
+            ) : null}
             <Select
               aria-label={t("language.switcherLabel")}
               optionList={[
@@ -589,6 +612,7 @@ function renderPage(page: Page) {
 
 function RepositoriesPage() {
   const { language, t } = useI18n();
+  const { client } = useRegistryConnection();
   const manifestRoute = manifestRouteFromPath(window.location.pathname);
   if (manifestRoute) {
     return <ManifestDetailPage repository={manifestRoute.repository} reference={manifestRoute.reference} />;
@@ -641,16 +665,7 @@ function RepositoriesPage() {
   );
 
   async function fetchRepositoryPage(last = "") {
-    const params = new URLSearchParams({ n: "100" });
-    if (last) {
-      params.set("last", last);
-    }
-
-    const response = await fetch(`/api/repositories?${params.toString()}`);
-    if (!response.ok) {
-      throw new Error(t("errors.loadRepositories"));
-    }
-    return (await response.json()) as RepositoryResponse;
+    return client.listRepositories(last) as Promise<RepositoryResponse>;
   }
 
   async function loadFirstPage() {
@@ -698,7 +713,7 @@ function RepositoriesPage() {
 
   useEffect(() => {
     void loadFirstPage();
-  }, []);
+  }, [client]);
 
   return (
     <section className="page-frame">
@@ -750,6 +765,7 @@ function RepositoriesPage() {
 
 function ManifestDetailPage({ repository, reference }: { repository: string; reference: string }) {
   const { t } = useI18n();
+  const { client } = useRegistryConnection();
   const [manifest, setManifest] = useState<ManifestResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -761,17 +777,13 @@ function ManifestDetailPage({ repository, reference }: { repository: string; ref
       setLoading(true);
       setError("");
       try {
-        const response = await fetch(`/api/repositories/${encodeURIComponent(repository)}/manifests/${encodeURIComponent(reference)}`);
-        if (!response.ok) {
-          throw new Error(t("errors.loadManifest"));
-        }
-        const body = (await response.json()) as ManifestResponse;
+        const body = await client.getManifest(repository, reference);
         if (active) {
           setManifest(body);
         }
-      } catch {
+      } catch (exception) {
         if (active) {
-          setError(t("errors.loadManifest"));
+          setError(formatApiException(exception, t("errors.loadManifest")));
           setManifest(null);
         }
       } finally {
@@ -786,7 +798,7 @@ function ManifestDetailPage({ repository, reference }: { repository: string; ref
     return () => {
       active = false;
     };
-  }, [reference, repository, t]);
+  }, [client, reference, repository, t]);
 
   return (
     <section className="page-frame">
@@ -922,6 +934,7 @@ function formatBytes(size: number): string {
 
 function RepositoryDetailPage({ repository }: { repository: string }) {
   const { language, t } = useI18n();
+  const { client, config } = useRegistryConnection();
   const [tags, setTags] = useState<string[]>([]);
   const [next, setNext] = useState("");
   const [hasNext, setHasNext] = useState(false);
@@ -1000,25 +1013,8 @@ function RepositoryDetailPage({ repository }: { repository: string }) {
     [copiedTag, deleteLoadingTag, repository, t]
   );
 
-  async function loadRegistryUrl() {
-    const response = await fetch("/api/status");
-    if (!response.ok) {
-      return;
-    }
-    const body = (await response.json()) as StatusResponse;
-    setRegistryUrl(body.registryUrl);
-  }
-
   async function fetchTagPage(last = "") {
-    const params = new URLSearchParams({ n: "100" });
-    if (last) {
-      params.set("last", last);
-    }
-    const response = await fetch(`/api/repositories/${encodeURIComponent(repository)}/tags?${params.toString()}`);
-    if (!response.ok) {
-      throw new Error(t("errors.loadTags"));
-    }
-    return (await response.json()) as TagsResponse;
+    return client.listTags(repository, last) as Promise<TagsResponse>;
   }
 
   async function loadFirstPage() {
@@ -1029,8 +1025,8 @@ function RepositoryDetailPage({ repository }: { repository: string }) {
       setTags(body.tags);
       setNext(body.pagination.next ?? "");
       setHasNext(body.pagination.hasNext);
-    } catch {
-      setError(t("errors.loadTags"));
+    } catch (exception) {
+      setError(formatApiException(exception, t("errors.loadTags")));
       setTags([]);
       setNext("");
       setHasNext(false);
@@ -1057,8 +1053,8 @@ function RepositoryDetailPage({ repository }: { repository: string }) {
       setTags(allTags);
       setNext(cursor);
       setHasNext(false);
-    } catch {
-      setError(t("errors.loadAllTags"));
+    } catch (exception) {
+      setError(formatApiException(exception, t("errors.loadAllTags")));
     } finally {
       setLoading(false);
     }
@@ -1077,14 +1073,10 @@ function RepositoryDetailPage({ repository }: { repository: string }) {
     setDeleteStatus("");
     setDeleteInput("");
     try {
-      const response = await fetch(`/api/repositories/${encodeURIComponent(repository)}/references/${encodeURIComponent(tag)}/digest`);
-      if (!response.ok) {
-        throw new Error(await readApiError(response, t("errors.resolveDigest")));
-      }
-      const body = (await response.json()) as DigestResponse;
+      const body = await client.getDigest(repository, tag) as DigestResponse;
       setDeleteTarget({ tag, digest: body.digest });
     } catch (deleteException) {
-      setDeleteError(deleteException instanceof Error ? deleteException.message : t("errors.resolveDigest"));
+      setDeleteError(formatApiException(deleteException, t("errors.resolveDigest")));
       setDeleteTarget(null);
     } finally {
       setDeleteLoadingTag("");
@@ -1099,21 +1091,13 @@ function RepositoryDetailPage({ repository }: { repository: string }) {
     setDeleteError("");
     setDeleteStatus("");
     try {
-      const response = await fetch(`/api/repositories/${encodeURIComponent(repository)}/manifests/${encodeURIComponent(deleteTarget.digest)}`, {
-        method: "DELETE",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ confirmedReference: deleteTarget.tag })
-      });
-      if (!response.ok) {
-        throw new Error(await readApiError(response, t("errors.deleteManifest")));
-      }
-      const body = (await response.json()) as DeleteManifestResponse;
+      const body = await client.deleteManifest(repository, deleteTarget.digest) as DeleteManifestResponse;
       setDeleteStatus(language === "zh" ? `删除请求已接受，状态码 ${body.status}。` : `Deletion accepted with status ${body.status}.`);
       setDeleteTarget(null);
       setDeleteInput("");
       await loadFirstPage();
     } catch (deleteException) {
-      setDeleteError(deleteException instanceof Error ? deleteException.message : t("errors.deleteManifest"));
+      setDeleteError(formatApiException(deleteException, t("errors.deleteManifest")));
     } finally {
       setDeleting(false);
     }
@@ -1129,9 +1113,9 @@ function RepositoryDetailPage({ repository }: { repository: string }) {
   }
 
   useEffect(() => {
-    void loadRegistryUrl();
+    setRegistryUrl(config.registryUrl);
     void loadFirstPage();
-  }, [repository]);
+  }, [client, config.registryUrl, repository]);
 
   return (
     <section className="page-frame">
@@ -1275,29 +1259,40 @@ function pullCommandFor(registryUrl: string, repository: string, tag: string): s
   return `docker pull ${host}/${repository}:${tag}`;
 }
 
-async function readApiError(response: Response, fallback: string): Promise<string> {
-  try {
-    const body = (await response.json()) as ApiErrorResponse;
-    if (body.error?.message) {
-      const baseMessage = body.error.registryStatus
-        ? `${body.error.message} Registry status ${body.error.registryStatus}.`
-        : body.error.message;
-      if (body.error.registryErrors && body.error.registryErrors.length > 0) {
-        const registryDetails = body.error.registryErrors
-          .map((registryError) => `${registryError.code}: ${registryError.message}`)
-          .join(" ");
-        return `${baseMessage} ${registryDetails}`;
-      }
-      return baseMessage;
-    }
-  } catch {
-    // Fall through to the caller-provided message.
+function formatApiException(exception: unknown, fallback: string): string {
+  if (isApiErrorPayload(exception)) {
+    return formatApiError(exception, fallback);
   }
-  return fallback;
+  return exception instanceof Error ? exception.message : fallback;
+}
+
+function formatApiError(error: ApiErrorPayload, fallback: string): string {
+  if (!error.message) {
+    return fallback;
+  }
+  const baseMessage = error.registryStatus
+    ? `${error.message} Registry status ${error.registryStatus}.`
+    : error.message;
+  if (error.registryErrors && error.registryErrors.length > 0) {
+    const registryDetails = error.registryErrors
+      .map((registryError) => `${registryError.code}: ${registryError.message}`)
+      .join(" ");
+    return `${baseMessage} ${registryDetails}`;
+  }
+  return baseMessage;
+}
+
+function isApiErrorPayload(value: unknown): value is ApiErrorPayload {
+  return Boolean(value && typeof value === "object" && "code" in value && "status" in value);
+}
+
+function clampNumber(value: number, min: number, max: number, fallback: number): number {
+  return Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
 }
 
 function OverviewPage() {
   const { language, t } = useI18n();
+  const { client } = useRegistryConnection();
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [error, setError] = useState("");
 
@@ -1306,13 +1301,7 @@ function OverviewPage() {
 
     async function loadStatus() {
       setError("");
-      const response = await fetch("/api/status");
-      if (!response.ok) {
-        setError(t("errors.loadStatus"));
-        return;
-      }
-
-      const body = (await response.json()) as StatusResponse;
+      const body = await client.status();
       if (active) {
         setStatus(body);
       }
@@ -1327,7 +1316,7 @@ function OverviewPage() {
     return () => {
       active = false;
     };
-  }, [t]);
+  }, [client, t]);
 
   return (
     <section className="page-frame">
@@ -1405,6 +1394,7 @@ function OverviewPage() {
 
 function SettingsPage() {
   const { t } = useI18n();
+  const { client, onEditConnection } = useRegistryConnection();
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [error, setError] = useState("");
 
@@ -1413,12 +1403,7 @@ function SettingsPage() {
 
     async function loadSettings() {
       setError("");
-      const response = await fetch("/api/status");
-      if (!response.ok) {
-        setError(t("errors.loadSettings"));
-        return;
-      }
-      const body = (await response.json()) as StatusResponse;
+      const body = await client.status();
       if (active) {
         setStatus(body);
       }
@@ -1433,7 +1418,7 @@ function SettingsPage() {
     return () => {
       active = false;
     };
-  }, [t]);
+  }, [client, t]);
 
   return (
     <section className="page-frame">
@@ -1442,6 +1427,11 @@ function SettingsPage() {
           <Tag color="teal" size="large">{t("nav.settings")}</Tag>
           <Title heading={2}>{t("settings.title")}</Title>
           <Paragraph type="tertiary">{t("settings.description")}</Paragraph>
+        </div>
+        <div className="page-actions">
+          <Button icon={<IconSetting />} onClick={onEditConnection} theme="solid" type="primary">
+            {t("actions.connection")}
+          </Button>
         </div>
       </div>
       <Space vertical spacing={20} className="full-width">

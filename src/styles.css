@@ -48,6 +48,10 @@ a {
   min-width: 260px;
 }
 
+.connection-required-card {
+  width: min(100%, 420px);
+}
+
 .checking-card .semi-card-body {
   display: flex;
   align-items: center;
@@ -100,6 +104,18 @@ a {
   display: grid;
   gap: 18px;
   margin-top: 28px;
+}
+
+.compact-form {
+  margin-top: 0;
+}
+
+.hidden-submit {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .app-layout {
