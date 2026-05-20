@@ -1343,28 +1343,6 @@ function OverviewPage() {
         {status ? (
           <Space vertical spacing={20} className="full-width">
             {status.insecureTLS ? <InsecureTLSWarning /> : null}
-            <Row gutter={[16, 16]}>
-              <Col xs={24} sm={12} lg={6}>
-                <Card className="workspace-card" shadows="hover">
-                  <Descriptions align="plain" data={[{ key: t("common.apiStatus"), value: <Tag color={status.available ? "green" : "red"}>{status.available ? t("common.available") : t("common.unavailable")}</Tag> }]} />
-                </Card>
-              </Col>
-              <Col xs={24} sm={12} lg={6}>
-                <Card className="workspace-card" shadows="hover">
-                  <Descriptions align="plain" data={[{ key: t("common.authentication"), value: <Tag color={status.authenticated ? "green" : "orange"}>{status.authenticated ? t("common.authenticated") : t("common.notAuthenticated")}</Tag> }]} />
-                </Card>
-              </Col>
-              <Col xs={24} sm={12} lg={6}>
-                <Card className="workspace-card" shadows="hover">
-                  <Descriptions align="plain" data={[{ key: t("common.pageSize"), value: String(status.pageSize) }]} />
-                </Card>
-              </Col>
-              <Col xs={24} sm={12} lg={6}>
-                <Card className="workspace-card" shadows="hover">
-                  <Descriptions align="plain" data={[{ key: t("common.deleteCapability"), value: <Tag color={status.deleteCapability === "available" ? "orange" : "grey"}>{deleteCapabilityLabel(language, status.deleteCapability)}</Tag> }]} />
-                </Card>
-              </Col>
-            </Row>
             <Card className="workspace-card" shadows="hover" title={t("common.connection")}>
               <Descriptions
                 align="plain"
@@ -1376,6 +1354,32 @@ function OverviewPage() {
                 ]}
               />
             </Card>
+            <Row className="overview-status-row" gutter={[16, 16]}>
+              <Col xs={24} sm={12} lg={8}>
+                <Card className="workspace-card overview-status-card" shadows="hover">
+                  <Space align="center" spacing={12}>
+                    <Text type="tertiary">{t("common.apiStatus")}:</Text>
+                    <Tag color={status.available ? "green" : "red"}>{status.available ? t("common.available") : t("common.unavailable")}</Tag>
+                  </Space>
+                </Card>
+              </Col>
+              <Col xs={24} sm={12} lg={8}>
+                <Card className="workspace-card overview-status-card" shadows="hover">
+                  <Space align="center" spacing={12}>
+                    <Text type="tertiary">{t("common.authentication")}:</Text>
+                    <Tag color={status.authenticated ? "green" : "orange"}>{status.authenticated ? t("common.authenticated") : t("common.notAuthenticated")}</Tag>
+                  </Space>
+                </Card>
+              </Col>
+              <Col xs={24} sm={12} lg={8}>
+                <Card className="workspace-card overview-status-card" shadows="hover">
+                  <Space align="center" spacing={12}>
+                    <Text type="tertiary">{t("common.deleteCapability")}:</Text>
+                    <Tag color={status.deleteCapability === "available" ? "orange" : "grey"}>{deleteCapabilityLabel(language, status.deleteCapability)}</Tag>
+                  </Space>
+                </Card>
+              </Col>
+            </Row>
           </Space>
         ) : (
           <Card className="workspace-card">

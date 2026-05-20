@@ -33,6 +33,10 @@ a {
   width: 100%;
 }
 
+.full-width > .semi-space-item {
+  width: 100%;
+}
+
 .centered-shell {
   min-height: 100vh;
   display: grid;
@@ -150,6 +154,20 @@ a {
 
 .workspace-card {
   width: 100%;
+}
+
+.overview-status-row {
+  width: 100%;
+}
+
+.overview-status-card .semi-card-body {
+  display: flex;
+  align-items: center;
+  min-height: 84px;
+}
+
+.overview-status-card .semi-space {
+  flex-wrap: nowrap;
 }
 
 .page-heading {
