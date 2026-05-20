@@ -1,15 +1,28 @@
-import { FormEvent, ReactNode, useEffect, useMemo, useState } from "react";
+import {
+  createContext,
+  FormEvent,
+  ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState
+} from "react";
 import {
   Avatar,
   Banner,
   Button,
   Card,
+  Col,
   Descriptions,
   Empty,
+  Form,
   Input,
   Layout,
   Modal,
   Nav,
+  Row,
+  Select,
   Space,
   Spin,
   Table,
@@ -33,6 +46,13 @@ import {
   IconSetting,
   IconTerminal
 } from "@douyinfe/semi-icons";
+import {
+  DEFAULT_LANGUAGE,
+  Language,
+  normalizeLanguage,
+  t as translate,
+  TranslationKey
+} from "./i18n";
 import "./styles.css";
 
 type AuthState = "checking" | "authenticated" | "anonymous";
@@ -139,6 +159,64 @@ type DescriptorRow = {
 const { Content, Header, Sider } = Layout;
 const { Text, Title, Paragraph } = Typography;
 const protectedPages = new Set<Page>(["overview", "repositories", "settings"]);
+const languageStorageKey = "registry-webui-language";
+
+type I18nContextValue = {
+  language: Language;
+  setLanguage: (language: Language) => void;
+  t: (key: TranslationKey) => string;
+};
+
+const I18nContext = createContext<I18nContextValue | null>(null);
+
+function useI18n(): I18nContextValue {
+  const context = useContext(I18nContext);
+  if (!context) {
+    throw new Error("useI18n must be used within I18nProvider.");
+  }
+  return context;
+}
+
+function I18nProvider({ children }: { children: ReactNode }) {
+  const [language, setLanguageState] = useState<Language>(() => {
+    try {
+      return normalizeLanguage(window.localStorage.getItem(languageStorageKey));
+    } catch {
+      return DEFAULT_LANGUAGE;
+    }
+  });
+
+  const setLanguage = useCallback((nextLanguage: Language) => {
+    setLanguageState(nextLanguage);
+    try {
+      window.localStorage.setItem(languageStorageKey, nextLanguage);
+    } catch {
+      // Language persistence is a convenience; the UI can continue without storage.
+    }
+  }, []);
+
+  const value = useMemo<I18nContextValue>(() => ({
+    language,
+    setLanguage,
+    t: (key) => translate(language, key)
+  }), [language, setLanguage]);
+
+  return <I18nContext.Provider value={value}>{children}</I18nContext.Provider>;
+}
+
+function loadedText(language: Language, count: number): string {
+  return `${count} ${translate(language, "common.loaded")}`;
+}
+
+function deleteCapabilityLabel(language: Language, value: StatusResponse["deleteCapability"]): string {
+  if (value === "available") {
+    return translate(language, "common.available");
+  }
+  if (value === "unavailable") {
+    return translate(language, "common.unavailable");
+  }
+  return value;
+}
 
 function pageFromPath(pathname: string): Page {
   if (pathname.startsWith("/repositories")) {
@@ -201,6 +279,10 @@ function repositoryPath(repository: string): string {
   return `/repositories/${encodeURIComponent(repository)}`;
 }
 
+function openDocumentPath(path: string) {
+  window.location.assign(path);
+}
+
 function pullRegistryHost(registryUrl: string): string {
   try {
     return new URL(registryUrl).host;
@@ -210,6 +292,15 @@ function pullRegistryHost(registryUrl: string): string {
 }
 
 export function App() {
+  return (
+    <I18nProvider>
+      <AppContent />
+    </I18nProvider>
+  );
+}
+
+function AppContent() {
+  const { t } = useI18n();
   const [page, setPage] = useState<Page>(() => pageFromPath(window.location.pathname));
   const [authState, setAuthState] = useState<AuthState>("checking");
 
@@ -285,7 +376,7 @@ export function App() {
       <main className="centered-shell">
         <Card className="checking-card">
           <Spin size="large" />
-          <Text type="tertiary">Checking session...</Text>
+          <Text type="tertiary">{t("common.checkingSession")}</Text>
         </Card>
       </main>
     );
@@ -306,6 +397,7 @@ export function App() {
 }
 
 function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) {
+  const { language, setLanguage, t } = useI18n();
   const [username, setUsername] = useState("admin");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -324,13 +416,13 @@ function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) {
       });
 
       if (!response.ok) {
-        setError("Invalid username or password.");
+        setError(t("errors.invalidCredentials"));
         return;
       }
 
       onAuthenticated();
     } catch {
-      setError("Unable to reach the service.");
+      setError(t("errors.serviceUnavailable"));
     } finally {
       setSubmitting(false);
     }
@@ -338,20 +430,37 @@ function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) {
 
   return (
     <main className="login-shell">
-      <section className="login-visual" aria-label="Registry API Wrapper">
-        <Tag color="teal" prefixIcon={<IconServer />}>Registry API Wrapper v0.1</Tag>
+      <div className="login-language">
+        <Select
+          aria-label={t("language.switcherLabel")}
+          optionList={[
+            { label: "English", value: "en" },
+            { label: "中文", value: "zh" }
+          ]}
+          size="small"
+          value={language}
+          onChange={(value) => setLanguage(normalizeLanguage(value))}
+        />
+      </div>
+      <section className="login-visual" aria-label={t("app.product")}>
+        <Tag color="teal" prefixIcon={<IconServer />}>{t("app.product")} v0.1</Tag>
         <div>
-          <Title className="login-title" heading={1}>Registry Web UI</Title>
+          <Title className="login-title" heading={1}>{t("app.name")}</Title>
           <Paragraph>
-            A compact control surface for browsing repositories, inspecting manifests, and
-            operating against a Docker Registry HTTP API V2 endpoint.
+            {t("app.tagline")}
           </Paragraph>
         </div>
-        <div className="login-metrics">
-          <MetricCard label="Mode" value="Read first" />
-          <MetricCard label="API" value="V2" />
-          <MetricCard label="Deletes" value="Guarded" />
-        </div>
+        <Card className="workspace-card" shadows="hover">
+          <Descriptions
+            align="plain"
+            column={3}
+            data={[
+              { key: t("common.mode"), value: t("common.readFirst") },
+              { key: t("common.api"), value: "V2" },
+              { key: t("common.deleteMode"), value: t("common.guarded") }
+            ]}
+          />
+        </Card>
       </section>
 
       <Card className="login-card" shadows="always">
@@ -359,33 +468,31 @@ function LoginPage({ onAuthenticated }: { onAuthenticated: () => void }) {
           <Avatar color="teal" size="extra-large">
             <IconLock size="extra-large" />
           </Avatar>
-          <Title heading={3}>Sign in</Title>
-          <Text type="tertiary">Use the local wrapper credentials to continue.</Text>
+          <Title heading={3}>{t("actions.signIn")}</Title>
+          <Text type="tertiary">{t("login.credentialsHint")}</Text>
         </Space>
 
         <form className="semi-form-stack" onSubmit={submit}>
-          <FieldLabel label="Username">
-            <Input
-              autoComplete="username"
-              prefix={<IconServer />}
-              size="large"
-              value={username}
-              onChange={setUsername}
-            />
-          </FieldLabel>
-          <FieldLabel label="Password">
-            <Input
-              autoComplete="current-password"
-              mode="password"
-              prefix={<IconLock />}
-              size="large"
-              value={password}
-              onChange={setPassword}
-            />
-          </FieldLabel>
+          <Form.Label text={t("login.username")} />
+          <Input
+            autoComplete="username"
+            prefix={<IconServer />}
+            size="large"
+            value={username}
+            onChange={setUsername}
+          />
+          <Form.Label text={t("login.password")} />
+          <Input
+            autoComplete="current-password"
+            mode="password"
+            prefix={<IconLock />}
+            size="large"
+            value={password}
+            onChange={setPassword}
+          />
           {error ? <Banner type="danger" description={error} closeIcon={null} /> : null}
           <Button block htmlType="submit" loading={submitting} size="large" theme="solid" type="primary">
-            Sign in
+            {t("actions.signIn")}
           </Button>
         </form>
       </Card>
@@ -402,18 +509,19 @@ function AppShell({
   onNavigate: (page: Page) => void;
   onLogout: () => void;
 }) {
+  const { language, setLanguage, t } = useI18n();
   const navigation = useMemo(
     () => [
-      { itemKey: "overview", text: "Overview", icon: <IconHome /> },
-      { itemKey: "repositories", text: "Repositories", icon: <IconLayers /> },
-      { itemKey: "settings", text: "Settings", icon: <IconSetting /> }
+      { itemKey: "overview", text: t("nav.overview"), icon: <IconHome /> },
+      { itemKey: "repositories", text: t("nav.repositories"), icon: <IconLayers /> },
+      { itemKey: "settings", text: t("nav.settings"), icon: <IconSetting /> }
     ],
-    []
+    [t]
   );
 
   return (
     <Layout className="app-layout">
-      <Sider className="app-sider" aria-label="Primary navigation">
+      <Sider className="app-sider" aria-label={t("nav.primary")}>
         <Nav
           bodyStyle={{ flex: 1 }}
           className="app-nav"
@@ -425,7 +533,7 @@ function AppShell({
               theme="borderless"
               type="tertiary"
             >
-              Sign out
+              {t("actions.signOut")}
             </Button>
           }
           header={{
@@ -434,7 +542,7 @@ function AppShell({
                 <IconServer />
               </Avatar>
             ),
-            text: "Registry Web UI"
+            text: t("app.name")
           }}
           items={navigation}
           selectedKeys={[activePage]}
@@ -444,10 +552,22 @@ function AppShell({
       <Layout className="app-main">
         <Header className="app-header">
           <div>
-            <Text strong>Registry API Wrapper</Text>
-            <Text type="tertiary">Operational console</Text>
+            <Text strong>{t("app.product")}</Text>
+            <Text type="tertiary">{t("app.headerSubtitle")}</Text>
           </div>
-          <Tag color="green" prefixIcon={<IconTerminal />}>Docker Registry V2</Tag>
+          <Space>
+            <Tag color="green" prefixIcon={<IconTerminal />}>{t("app.registryVersion")}</Tag>
+            <Select
+              aria-label={t("language.switcherLabel")}
+              optionList={[
+                { label: "English", value: "en" },
+                { label: "中文", value: "zh" }
+              ]}
+              size="small"
+              value={language}
+              onChange={(value) => setLanguage(normalizeLanguage(value))}
+            />
+          </Space>
         </Header>
         <Content className="content-shell">{renderPage(activePage)}</Content>
       </Layout>
@@ -468,6 +588,7 @@ function renderPage(page: Page) {
 }
 
 function RepositoriesPage() {
+  const { language, t } = useI18n();
   const manifestRoute = manifestRouteFromPath(window.location.pathname);
   if (manifestRoute) {
     return <ManifestDetailPage repository={manifestRoute.repository} reference={manifestRoute.reference} />;
@@ -493,14 +614,14 @@ function RepositoriesPage() {
     return source.map<RepositoryRow>((repository) => ({
       key: repository,
       repository,
-      scope: next && hasNext ? "Current page" : "Loaded"
+      scope: next && hasNext ? t("common.currentPage") : t("common.loaded")
     }));
-  }, [hasNext, next, query, repositories]);
+  }, [hasNext, next, query, repositories, t]);
 
   const columns = useMemo(
     () => [
       {
-        title: "Repository",
+        title: t("common.repository"),
         dataIndex: "repository",
         render: (repository: string) => (
           <a className="resource-link" href={repositoryPath(repository)}>
@@ -510,13 +631,13 @@ function RepositoriesPage() {
         )
       },
       {
-        title: "Load scope",
+        title: t("common.loadScope"),
         dataIndex: "scope",
         width: 150,
-        render: (scope: string) => <Tag color={scope === "Loaded" ? "green" : "blue"}>{scope}</Tag>
+        render: (scope: string) => <Tag color={scope === t("common.loaded") ? "green" : "blue"}>{scope}</Tag>
       }
     ],
-    []
+    [t]
   );
 
   async function fetchRepositoryPage(last = "") {
@@ -527,7 +648,7 @@ function RepositoriesPage() {
 
     const response = await fetch(`/api/repositories?${params.toString()}`);
     if (!response.ok) {
-      throw new Error("Unable to load repositories.");
+      throw new Error(t("errors.loadRepositories"));
     }
     return (await response.json()) as RepositoryResponse;
   }
@@ -541,7 +662,7 @@ function RepositoriesPage() {
       setNext(body.pagination.next ?? "");
       setHasNext(body.pagination.hasNext);
     } catch {
-      setError("Unable to load repositories.");
+      setError(t("errors.loadRepositories"));
       setRepositories([]);
       setNext("");
       setHasNext(false);
@@ -569,7 +690,7 @@ function RepositoriesPage() {
       setNext(cursor);
       setHasNext(false);
     } catch {
-      setError("Unable to load all repositories.");
+      setError(t("errors.loadAllRepositories"));
     } finally {
       setLoading(false);
     }
@@ -580,49 +701,55 @@ function RepositoriesPage() {
   }, []);
 
   return (
-    <PageFrame
-      eyebrow="Repositories"
-      title="Repositories"
-      description="Browse loaded repositories and open tag details without leaving the console."
-      actions={
-        <Space>
-          <Button icon={<IconRefresh />} loading={loading} onClick={loadFirstPage} theme="light" type="tertiary">
-            Refresh
-          </Button>
-          <Button disabled={!hasNext || loading} onClick={loadAllRepositories} theme="solid" type="primary">
-            Load all
-          </Button>
-        </Space>
-      }
-    >
-      <Card className="workspace-card" shadows="hover">
-        <div className="table-toolbar">
-          <Input
-            className="search-input"
-            placeholder="Search loaded repositories"
-            prefix={<IconSearch />}
-            showClear
-            value={query}
-            onChange={setQuery}
-          />
-          <Text type="tertiary">{repositories.length} loaded</Text>
+    <section className="page-frame">
+      <div className="page-heading">
+        <div>
+          <Tag color="teal" size="large">{t("nav.repositories")}</Tag>
+          <Title heading={2}>{t("nav.repositories")}</Title>
+          <Paragraph type="tertiary">{t("repositories.description")}</Paragraph>
         </div>
-        {error ? <Banner type="danger" description={error} closeIcon={null} /> : null}
-        <Table<RepositoryRow>
-          columns={columns}
-          dataSource={filteredRepositories}
-          empty={<Empty title="No repositories found" description="Refresh the registry or adjust the search." />}
-          loading={loading}
-          pagination={false}
-          rowKey="key"
-          size="middle"
-        />
-      </Card>
-    </PageFrame>
+        <div className="page-actions">
+          <Space>
+            <Button icon={<IconRefresh />} loading={loading} onClick={loadFirstPage} theme="light" type="tertiary">
+              {t("actions.refresh")}
+            </Button>
+            <Button disabled={!hasNext || loading} onClick={loadAllRepositories} theme="solid" type="primary">
+              {t("actions.loadAll")}
+            </Button>
+          </Space>
+        </div>
+      </div>
+      <Space vertical spacing={20} className="full-width">
+        <Card className="workspace-card" shadows="hover">
+          <div className="table-toolbar">
+            <Input
+              className="search-input"
+              placeholder={t("repositories.searchPlaceholder")}
+              prefix={<IconSearch />}
+              showClear
+              value={query}
+              onChange={setQuery}
+            />
+            <Text type="tertiary">{loadedText(language, repositories.length)}</Text>
+          </div>
+          {error ? <Banner type="danger" description={error} closeIcon={null} /> : null}
+          <Table<RepositoryRow>
+            columns={columns}
+            dataSource={filteredRepositories}
+            empty={<Empty title={t("empty.repositoriesTitle")} description={t("empty.repositoriesDescription")} />}
+            loading={loading}
+            pagination={false}
+            rowKey="key"
+            size="middle"
+          />
+        </Card>
+      </Space>
+    </section>
   );
 }
 
 function ManifestDetailPage({ repository, reference }: { repository: string; reference: string }) {
+  const { t } = useI18n();
   const [manifest, setManifest] = useState<ManifestResponse | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -636,7 +763,7 @@ function ManifestDetailPage({ repository, reference }: { repository: string; ref
       try {
         const response = await fetch(`/api/repositories/${encodeURIComponent(repository)}/manifests/${encodeURIComponent(reference)}`);
         if (!response.ok) {
-          throw new Error("Unable to load manifest.");
+          throw new Error(t("errors.loadManifest"));
         }
         const body = (await response.json()) as ManifestResponse;
         if (active) {
@@ -644,7 +771,7 @@ function ManifestDetailPage({ repository, reference }: { repository: string; ref
         }
       } catch {
         if (active) {
-          setError("Unable to load manifest.");
+          setError(t("errors.loadManifest"));
           setManifest(null);
         }
       } finally {
@@ -659,49 +786,60 @@ function ManifestDetailPage({ repository, reference }: { repository: string; ref
     return () => {
       active = false;
     };
-  }, [reference, repository]);
+  }, [reference, repository, t]);
 
   return (
-    <PageFrame
-      eyebrow="Manifest detail"
-      title={reference}
-      description={repository}
-      actions={
-        <Button component="a" href={repositoryPath(repository)} icon={<IconChevronLeft />} theme="light" type="tertiary">
-          Back to tags
-        </Button>
-      }
-    >
-      {error ? <Banner type="danger" description={error} closeIcon={null} /> : null}
-      <Spin spinning={loading}>
-        {manifest ? (
-          <Space vertical spacing={20} className="full-width">
-            <Card className="workspace-card" shadows="hover">
-              <Descriptions
-                align="plain"
-                column={2}
-                data={[
-                  { key: "Repository", value: manifest.repository },
-                  { key: "Reference", value: manifest.reference },
-                  { key: "Digest", value: <code className="inline-code">{manifest.digest}</code>, span: 2 },
-                  { key: "Media type", value: manifest.mediaType },
-                  { key: "Schema version", value: String(manifest.schemaVersion) },
-                  { key: "Tag size", value: formatBytes(manifest.size) }
-                ]}
-              />
-            </Card>
-            <ManifestDescriptors manifest={manifest} />
-            <Card className="workspace-card" shadows="hover" title="Raw JSON">
-              <pre className="raw-json">{JSON.stringify(manifest.raw, null, 2)}</pre>
-            </Card>
-          </Space>
-        ) : null}
-      </Spin>
-    </PageFrame>
+    <section className="page-frame">
+      <div className="page-heading">
+        <div>
+          <Tag color="teal" size="large">{t("actions.manifest")}</Tag>
+          <Title heading={2}>{reference}</Title>
+          <Paragraph type="tertiary">{repository}</Paragraph>
+        </div>
+        <div className="page-actions">
+          <Button
+            icon={<IconChevronLeft />}
+            onClick={() => openDocumentPath(repositoryPath(repository))}
+            theme="light"
+            type="tertiary"
+          >
+            {t("actions.backToTags")}
+          </Button>
+        </div>
+      </div>
+      <Space vertical spacing={20} className="full-width">
+        {error ? <Banner type="danger" description={error} closeIcon={null} /> : null}
+        <Spin spinning={loading}>
+          {manifest ? (
+            <Space vertical spacing={20} className="full-width">
+              <Card className="workspace-card" shadows="hover">
+                <Descriptions
+                  align="plain"
+                  column={2}
+                  data={[
+                    { key: t("common.repository"), value: manifest.repository },
+                    { key: t("common.reference"), value: manifest.reference },
+                    { key: t("common.digest"), value: <code className="inline-code">{manifest.digest}</code>, span: 2 },
+                    { key: t("common.mediaType"), value: manifest.mediaType },
+                    { key: t("common.schemaVersion"), value: String(manifest.schemaVersion) },
+                    { key: t("common.tagSize"), value: formatBytes(manifest.size) }
+                  ]}
+                />
+              </Card>
+              <ManifestDescriptors manifest={manifest} />
+              <Card className="workspace-card" shadows="hover" title={t("common.rawJson")}>
+                <pre className="raw-json">{JSON.stringify(manifest.raw, null, 2)}</pre>
+              </Card>
+            </Space>
+          ) : null}
+        </Spin>
+      </Space>
+    </section>
   );
 }
 
 function ManifestDescriptors({ manifest }: { manifest: ManifestResponse }) {
+  const { t } = useI18n();
   const rows = useMemo<DescriptorRow[]>(() => {
     const source = manifest.layers && manifest.layers.length > 0
       ? manifest.layers.map((layer) => ({
@@ -722,28 +860,28 @@ function ManifestDescriptors({ manifest }: { manifest: ManifestResponse }) {
   const columns = useMemo(
     () => [
       {
-        title: "Digest",
+        title: t("common.digest"),
         dataIndex: "digest",
         render: (digest: string) => <code className="inline-code">{digest}</code>
       },
       {
-        title: manifest.layers && manifest.layers.length > 0 ? "Media type" : "Platform",
+        title: manifest.layers && manifest.layers.length > 0 ? t("common.mediaType") : t("common.platform"),
         dataIndex: "mediaType",
         render: (value: string) => <Text>{value}</Text>
       },
       {
-        title: "Size",
+        title: t("common.size"),
         dataIndex: "size",
         width: 130
       }
     ],
-    [manifest.layers]
+    [manifest.layers, t]
   );
 
-  const title = manifest.layers && manifest.layers.length > 0 ? "Layers" : "Platform manifests";
+  const title = manifest.layers && manifest.layers.length > 0 ? t("common.layers") : t("common.platformManifests");
   const description = manifest.layers && manifest.layers.length > 0
     ? undefined
-    : "Child manifests are listed from the index response and are not fetched recursively.";
+    : t("common.childManifestNote");
 
   return (
     <Card className="workspace-card" shadows="hover" title={title}>
@@ -751,7 +889,7 @@ function ManifestDescriptors({ manifest }: { manifest: ManifestResponse }) {
       <Table<DescriptorRow>
         columns={columns}
         dataSource={rows}
-        empty={<Empty title="No descriptor data" description="The registry did not return layers or platform manifests." />}
+        empty={<Empty title={t("empty.descriptorTitle")} description={t("empty.descriptorDescription")} />}
         pagination={false}
         rowKey="key"
         size="middle"
@@ -783,6 +921,7 @@ function formatBytes(size: number): string {
 }
 
 function RepositoryDetailPage({ repository }: { repository: string }) {
+  const { language, t } = useI18n();
   const [tags, setTags] = useState<string[]>([]);
   const [next, setNext] = useState("");
   const [hasNext, setHasNext] = useState(false);
@@ -804,14 +943,14 @@ function RepositoryDetailPage({ repository }: { repository: string }) {
     return source.map<TagRow>((tag) => ({
       key: tag,
       tag,
-      command: registryUrl ? pullCommandFor(registryUrl, repository, tag) : "Registry URL loading..."
+      command: registryUrl ? pullCommandFor(registryUrl, repository, tag) : `${t("common.registryUrl")}...`
     }));
-  }, [query, registryUrl, repository, tags]);
+  }, [query, registryUrl, repository, tags, t]);
 
   const columns = useMemo(
     () => [
       {
-        title: "Tag",
+        title: t("common.tag"),
         dataIndex: "tag",
         render: (tag: string, record: TagRow) => (
           <div className="tag-cell">
@@ -821,20 +960,19 @@ function RepositoryDetailPage({ repository }: { repository: string }) {
         )
       },
       {
-        title: "Actions",
+        title: t("common.operation"),
         dataIndex: "tag",
         width: 330,
         render: (tag: string) => (
           <Space wrap>
             <Button
-              component="a"
-              href={`${repositoryPath(repository)}/manifests/${encodeURIComponent(tag)}`}
               icon={<IconFile />}
+              onClick={() => openDocumentPath(`${repositoryPath(repository)}/manifests/${encodeURIComponent(tag)}`)}
               size="small"
               theme="light"
               type="tertiary"
             >
-              Manifest
+              {t("actions.manifest")}
             </Button>
             <Button
               icon={<IconCopy />}
@@ -843,7 +981,7 @@ function RepositoryDetailPage({ repository }: { repository: string }) {
               theme="light"
               type={copiedTag === tag ? "primary" : "tertiary"}
             >
-              {copiedTag === tag ? "Copied" : "Pull"}
+              {copiedTag === tag ? t("common.copied") : t("actions.pull")}
             </Button>
             <Button
               icon={<IconDelete />}
@@ -853,13 +991,13 @@ function RepositoryDetailPage({ repository }: { repository: string }) {
               theme="light"
               type="danger"
             >
-              Delete
+              {t("actions.delete")}
             </Button>
           </Space>
         )
       }
     ],
-    [copiedTag, deleteLoadingTag, repository]
+    [copiedTag, deleteLoadingTag, repository, t]
   );
 
   async function loadRegistryUrl() {
@@ -878,7 +1016,7 @@ function RepositoryDetailPage({ repository }: { repository: string }) {
     }
     const response = await fetch(`/api/repositories/${encodeURIComponent(repository)}/tags?${params.toString()}`);
     if (!response.ok) {
-      throw new Error("Unable to load tags.");
+      throw new Error(t("errors.loadTags"));
     }
     return (await response.json()) as TagsResponse;
   }
@@ -892,7 +1030,7 @@ function RepositoryDetailPage({ repository }: { repository: string }) {
       setNext(body.pagination.next ?? "");
       setHasNext(body.pagination.hasNext);
     } catch {
-      setError("Unable to load tags.");
+      setError(t("errors.loadTags"));
       setTags([]);
       setNext("");
       setHasNext(false);
@@ -920,7 +1058,7 @@ function RepositoryDetailPage({ repository }: { repository: string }) {
       setNext(cursor);
       setHasNext(false);
     } catch {
-      setError("Unable to load all tags.");
+      setError(t("errors.loadAllTags"));
     } finally {
       setLoading(false);
     }
@@ -930,7 +1068,7 @@ function RepositoryDetailPage({ repository }: { repository: string }) {
     const command = pullCommandFor(registryUrl, repository, tag);
     await navigator.clipboard.writeText(command);
     setCopiedTag(tag);
-    Toast.success("Pull command copied.");
+    Toast.success(t("toast.pullCopied"));
   }
 
   async function startDelete(tag: string) {
@@ -941,12 +1079,12 @@ function RepositoryDetailPage({ repository }: { repository: string }) {
     try {
       const response = await fetch(`/api/repositories/${encodeURIComponent(repository)}/references/${encodeURIComponent(tag)}/digest`);
       if (!response.ok) {
-        throw new Error(await readApiError(response, "Unable to resolve the current digest."));
+        throw new Error(await readApiError(response, t("errors.resolveDigest")));
       }
       const body = (await response.json()) as DigestResponse;
       setDeleteTarget({ tag, digest: body.digest });
     } catch (deleteException) {
-      setDeleteError(deleteException instanceof Error ? deleteException.message : "Unable to resolve the current digest.");
+      setDeleteError(deleteException instanceof Error ? deleteException.message : t("errors.resolveDigest"));
       setDeleteTarget(null);
     } finally {
       setDeleteLoadingTag("");
@@ -967,15 +1105,15 @@ function RepositoryDetailPage({ repository }: { repository: string }) {
         body: JSON.stringify({ confirmedReference: deleteTarget.tag })
       });
       if (!response.ok) {
-        throw new Error(await readApiError(response, "Unable to delete manifest."));
+        throw new Error(await readApiError(response, t("errors.deleteManifest")));
       }
       const body = (await response.json()) as DeleteManifestResponse;
-      setDeleteStatus(`Deletion accepted with status ${body.status}.`);
+      setDeleteStatus(language === "zh" ? `删除请求已接受，状态码 ${body.status}。` : `Deletion accepted with status ${body.status}.`);
       setDeleteTarget(null);
       setDeleteInput("");
       await loadFirstPage();
     } catch (deleteException) {
-      setDeleteError(deleteException instanceof Error ? deleteException.message : "Unable to delete manifest.");
+      setDeleteError(deleteException instanceof Error ? deleteException.message : t("errors.deleteManifest"));
     } finally {
       setDeleting(false);
     }
@@ -996,60 +1134,70 @@ function RepositoryDetailPage({ repository }: { repository: string }) {
   }, [repository]);
 
   return (
-    <PageFrame
-      eyebrow="Repository detail"
-      title={repository}
-      description="Browse loaded tags, copy pull commands, and inspect manifest metadata."
-      actions={
-        <Space>
-          <Button component="a" href="/repositories" icon={<IconChevronLeft />} theme="light" type="tertiary">
-            Back
-          </Button>
-          <Button icon={<IconRefresh />} loading={loading} onClick={loadFirstPage} theme="light" type="tertiary">
-            Refresh
-          </Button>
-          <Button disabled={!hasNext || loading} onClick={loadAllTags} theme="solid" type="primary">
-            Load all
-          </Button>
-        </Space>
-      }
-    >
-      <Card className="workspace-card" shadows="hover">
-        <div className="table-toolbar">
-          <Input
-            className="search-input"
-            placeholder="Search loaded tags"
-            prefix={<IconSearch />}
-            showClear
-            value={query}
-            onChange={setQuery}
-          />
-          <Text type="tertiary">{tags.length} loaded</Text>
+    <section className="page-frame">
+      <div className="page-heading">
+        <div>
+          <Tag color="teal" size="large">{t("repositoryDetail.title")}</Tag>
+          <Title heading={2}>{repository}</Title>
+          <Paragraph type="tertiary">{t("repositoryDetail.description")}</Paragraph>
         </div>
-        {error ? <Banner type="danger" description={error} closeIcon={null} /> : null}
-        {deleteError && !deleteTarget ? <Banner type="danger" description={deleteError} closeIcon={null} /> : null}
-        {deleteStatus ? <Banner type="success" description={deleteStatus} closeIcon={null} /> : null}
-        <Table<TagRow>
-          columns={columns}
-          dataSource={filteredTags}
-          empty={<Empty title="No tags found" description="Refresh the repository or adjust the search." />}
-          loading={loading}
-          pagination={false}
-          rowKey="key"
-          size="middle"
+        <div className="page-actions">
+          <Space>
+            <Button
+              icon={<IconChevronLeft />}
+              onClick={() => openDocumentPath("/repositories")}
+              theme="light"
+              type="tertiary"
+            >
+              {t("actions.back")}
+            </Button>
+            <Button icon={<IconRefresh />} loading={loading} onClick={loadFirstPage} theme="light" type="tertiary">
+              {t("actions.refresh")}
+            </Button>
+            <Button disabled={!hasNext || loading} onClick={loadAllTags} theme="solid" type="primary">
+              {t("actions.loadAll")}
+            </Button>
+          </Space>
+        </div>
+      </div>
+      <Space vertical spacing={20} className="full-width">
+        <Card className="workspace-card" shadows="hover">
+          <div className="table-toolbar">
+            <Input
+              className="search-input"
+              placeholder={t("tags.searchPlaceholder")}
+              prefix={<IconSearch />}
+              showClear
+              value={query}
+              onChange={setQuery}
+            />
+            <Text type="tertiary">{loadedText(language, tags.length)}</Text>
+          </div>
+          {error ? <Banner type="danger" description={error} closeIcon={null} /> : null}
+          {deleteError && !deleteTarget ? <Banner type="danger" description={deleteError} closeIcon={null} /> : null}
+          {deleteStatus ? <Banner type="success" description={deleteStatus} closeIcon={null} /> : null}
+          <Table<TagRow>
+            columns={columns}
+            dataSource={filteredTags}
+            empty={<Empty title={t("empty.tagsTitle")} description={t("empty.tagsDescription")} />}
+            loading={loading}
+            pagination={false}
+            rowKey="key"
+            size="middle"
+          />
+        </Card>
+        <DeleteManifestDialog
+          deleteError={deleteError}
+          deleteInput={deleteInput}
+          deleteTarget={deleteTarget}
+          deleting={deleting}
+          onCancel={closeDeleteDialog}
+          onChangeInput={setDeleteInput}
+          onConfirm={() => void confirmDelete()}
+          repository={repository}
         />
-      </Card>
-      <DeleteManifestDialog
-        deleteError={deleteError}
-        deleteInput={deleteInput}
-        deleteTarget={deleteTarget}
-        deleting={deleting}
-        onCancel={closeDeleteDialog}
-        onChangeInput={setDeleteInput}
-        onConfirm={() => void confirmDelete()}
-        repository={repository}
-      />
-    </PageFrame>
+      </Space>
+    </section>
   );
 }
 
@@ -1072,18 +1220,19 @@ function DeleteManifestDialog({
   onConfirm: () => void;
   repository: string;
 }) {
+  const { t } = useI18n();
   const operation = deleteTarget ? `DELETE /v2/${repository}/manifests/${deleteTarget.digest}` : "";
   const canDelete = Boolean(deleteTarget) && deleteInput === deleteTarget?.tag && !deleting;
 
   return (
     <Modal
-      cancelText="Cancel"
+      cancelText={t("actions.cancel")}
       centered
       confirmLoading={deleting}
       hasCancel
       okButtonProps={{ disabled: !canDelete, type: "danger" }}
-      okText="Delete manifest"
-      title="Confirm digest deletion"
+      okText={t("actions.deleteManifest")}
+      title={t("delete.confirmTitle")}
       visible={Boolean(deleteTarget)}
       width={720}
       onCancel={onCancel}
@@ -1095,26 +1244,25 @@ function DeleteManifestDialog({
             align="plain"
             column={1}
             data={[
-              { key: "Repository", value: repository },
-              { key: "Tag", value: deleteTarget.tag },
-              { key: "Digest", value: <code className="inline-code">{deleteTarget.digest}</code> },
-              { key: "Operation", value: <code className="inline-code">{operation}</code> }
+              { key: t("common.repository"), value: repository },
+              { key: t("common.tag"), value: deleteTarget.tag },
+              { key: t("common.digest"), value: <code className="inline-code">{deleteTarget.digest}</code> },
+              { key: t("common.operation"), value: <code className="inline-code">{operation}</code> }
             ]}
           />
           <Banner
             type="warning"
             closeIcon={null}
-            description="This deletes the manifest digest currently referenced by this tag. Other tags pointing to the same digest may be affected. Disk space is not released until external Registry garbage collection runs."
+            description={t("delete.warning")}
           />
-          <FieldLabel label="Type tag name to confirm">
-            <Input
-              autoFocus
-              placeholder={deleteTarget.tag}
-              value={deleteInput}
-              validateStatus={deleteInput && deleteInput !== deleteTarget.tag ? "warning" : "default"}
-              onChange={onChangeInput}
-            />
-          </FieldLabel>
+          <Form.Label text={t("delete.confirmTypeLabel")} />
+          <Input
+            autoFocus
+            placeholder={deleteTarget.tag}
+            value={deleteInput}
+            validateStatus={deleteInput && deleteInput !== deleteTarget.tag ? "warning" : "default"}
+            onChange={onChangeInput}
+          />
           {deleteError ? <Banner type="danger" description={deleteError} closeIcon={null} /> : null}
         </Space>
       ) : null}
@@ -1149,6 +1297,7 @@ async function readApiError(response: Response, fallback: string): Promise<strin
 }
 
 function OverviewPage() {
+  const { language, t } = useI18n();
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [error, setError] = useState("");
 
@@ -1159,7 +1308,7 @@ function OverviewPage() {
       setError("");
       const response = await fetch("/api/status");
       if (!response.ok) {
-        setError("Unable to load Registry status.");
+        setError(t("errors.loadStatus"));
         return;
       }
 
@@ -1171,65 +1320,87 @@ function OverviewPage() {
 
     void loadStatus().catch(() => {
       if (active) {
-        setError("Unable to load Registry status.");
+        setError(t("errors.loadStatus"));
       }
     });
 
     return () => {
       active = false;
     };
-  }, []);
+  }, [t]);
 
   return (
-    <PageFrame
-      eyebrow="Overview"
-      title="Registry overview"
-      description="Current wrapper connectivity, Registry authentication, and operational capability."
-    >
-      {error ? <Banner type="danger" description={error} closeIcon={null} /> : null}
-      {status ? (
-        <Space vertical spacing={20} className="full-width">
-          {status.insecureTLS ? <InsecureTLSWarning /> : null}
-          <div className="metric-grid">
-            <MetricCard label="API status" value={status.available ? "Available" : "Unavailable"} tone={status.available ? "green" : "red"} />
-            <MetricCard label="Authentication" value={status.authenticated ? "Authenticated" : "Not authenticated"} tone={status.authenticated ? "green" : "orange"} />
-            <MetricCard label="Page size" value={String(status.pageSize)} />
-            <MetricCard label="Delete capability" value={status.deleteCapability} tone={status.deleteCapability === "available" ? "orange" : "grey"} />
-          </div>
-          <Card className="workspace-card" shadows="hover" title="Connection">
-            <Descriptions
-              align="plain"
-              column={2}
-              data={[
-                { key: "Registry URL", value: status.registryUrl, span: 2 },
-                { key: "Request timeout", value: status.requestTimeout },
-                { key: "Insecure TLS", value: status.insecureTLS ? "Enabled" : "Disabled" }
-              ]}
-            />
+    <section className="page-frame">
+      <div className="page-heading">
+        <div>
+          <Tag color="teal" size="large">{t("nav.overview")}</Tag>
+          <Title heading={2}>{t("overview.title")}</Title>
+          <Paragraph type="tertiary">{t("overview.description")}</Paragraph>
+        </div>
+      </div>
+      <Space vertical spacing={20} className="full-width">
+        {error ? <Banner type="danger" description={error} closeIcon={null} /> : null}
+        {status ? (
+          <Space vertical spacing={20} className="full-width">
+            {status.insecureTLS ? <InsecureTLSWarning /> : null}
+            <Row gutter={[16, 16]}>
+              <Col xs={24} sm={12} lg={6}>
+                <Card className="workspace-card" shadows="hover">
+                  <Descriptions align="plain" data={[{ key: t("common.apiStatus"), value: <Tag color={status.available ? "green" : "red"}>{status.available ? t("common.available") : t("common.unavailable")}</Tag> }]} />
+                </Card>
+              </Col>
+              <Col xs={24} sm={12} lg={6}>
+                <Card className="workspace-card" shadows="hover">
+                  <Descriptions align="plain" data={[{ key: t("common.authentication"), value: <Tag color={status.authenticated ? "green" : "orange"}>{status.authenticated ? t("common.authenticated") : t("common.notAuthenticated")}</Tag> }]} />
+                </Card>
+              </Col>
+              <Col xs={24} sm={12} lg={6}>
+                <Card className="workspace-card" shadows="hover">
+                  <Descriptions align="plain" data={[{ key: t("common.pageSize"), value: String(status.pageSize) }]} />
+                </Card>
+              </Col>
+              <Col xs={24} sm={12} lg={6}>
+                <Card className="workspace-card" shadows="hover">
+                  <Descriptions align="plain" data={[{ key: t("common.deleteCapability"), value: <Tag color={status.deleteCapability === "available" ? "orange" : "grey"}>{deleteCapabilityLabel(language, status.deleteCapability)}</Tag> }]} />
+                </Card>
+              </Col>
+            </Row>
+            <Card className="workspace-card" shadows="hover" title={t("common.connection")}>
+              <Descriptions
+                align="plain"
+                column={2}
+                data={[
+                  { key: t("common.registryUrl"), value: status.registryUrl, span: 2 },
+                  { key: t("common.requestTimeout"), value: status.requestTimeout },
+                  { key: t("common.insecureTLS"), value: status.insecureTLS ? t("common.enabled") : t("common.disabled") }
+                ]}
+              />
+            </Card>
+          </Space>
+        ) : (
+          <Card className="workspace-card">
+            <Spin />
           </Card>
-        </Space>
-      ) : (
-        <Card className="workspace-card">
-          <Spin />
-        </Card>
-      )}
-      {status?.error ? (
-        <Card className="error-card" shadows="hover" title="Registry error">
-          <Text strong>{status.error.message}</Text>
-          <Text type="tertiary">
-            {status.error.code}
-            {status.error.registryStatus ? ` / Registry ${status.error.registryStatus}` : ""}
-          </Text>
-          {status.error.registryErrors && status.error.registryErrors.length > 0 ? (
-            <pre className="raw-json compact">{JSON.stringify(status.error.registryErrors, null, 2)}</pre>
-          ) : null}
-        </Card>
-      ) : null}
-    </PageFrame>
+        )}
+        {status?.error ? (
+          <Card className="error-card" shadows="hover" title={t("common.registryError")}>
+            <Text strong>{status.error.message}</Text>
+            <Text type="tertiary">
+              {status.error.code}
+              {status.error.registryStatus ? ` / Registry ${status.error.registryStatus}` : ""}
+            </Text>
+            {status.error.registryErrors && status.error.registryErrors.length > 0 ? (
+              <pre className="raw-json compact">{JSON.stringify(status.error.registryErrors, null, 2)}</pre>
+            ) : null}
+          </Card>
+        ) : null}
+      </Space>
+    </section>
   );
 }
 
 function SettingsPage() {
+  const { t } = useI18n();
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [error, setError] = useState("");
 
@@ -1240,7 +1411,7 @@ function SettingsPage() {
       setError("");
       const response = await fetch("/api/status");
       if (!response.ok) {
-        setError("Unable to load settings.");
+        setError(t("errors.loadSettings"));
         return;
       }
       const body = (await response.json()) as StatusResponse;
@@ -1251,113 +1422,61 @@ function SettingsPage() {
 
     void loadSettings().catch(() => {
       if (active) {
-        setError("Unable to load settings.");
+        setError(t("errors.loadSettings"));
       }
     });
 
     return () => {
       active = false;
     };
-  }, []);
+  }, [t]);
 
-  return (
-    <PageFrame
-      eyebrow="Settings"
-      title="Runtime settings"
-      description="Read-only wrapper configuration reported by the backend."
-    >
-      {error ? <Banner type="danger" description={error} closeIcon={null} /> : null}
-      {status ? (
-        <Space vertical spacing={20} className="full-width">
-          {status.insecureTLS ? <InsecureTLSWarning /> : null}
-          <Card className="workspace-card" shadows="hover">
-            <Descriptions
-              align="plain"
-              column={2}
-              data={[
-                { key: "Registry URL", value: status.registryUrl, span: 2 },
-                { key: "Page size", value: String(status.pageSize) },
-                { key: "Request timeout", value: status.requestTimeout },
-                { key: "Insecure TLS", value: status.insecureTLS ? "Enabled" : "Disabled" },
-                { key: "Mode", value: "Read-only" }
-              ]}
-            />
-          </Card>
-        </Space>
-      ) : (
-        <Card className="workspace-card">
-          <Spin />
-        </Card>
-      )}
-    </PageFrame>
-  );
-}
-
-function InsecureTLSWarning() {
-  return (
-    <Banner
-      closeIcon={null}
-      icon={<IconAlertTriangle />}
-      type="warning"
-      description="Insecure TLS is enabled for Registry connections."
-    />
-  );
-}
-
-function PageFrame({
-  actions,
-  children,
-  description,
-  eyebrow,
-  title
-}: {
-  actions?: ReactNode;
-  children: ReactNode;
-  description: string;
-  eyebrow: string;
-  title: string;
-}) {
   return (
     <section className="page-frame">
       <div className="page-heading">
         <div>
-          <Tag color="teal" size="large">{eyebrow}</Tag>
-          <Title heading={2}>{title}</Title>
-          <Paragraph type="tertiary">{description}</Paragraph>
+          <Tag color="teal" size="large">{t("nav.settings")}</Tag>
+          <Title heading={2}>{t("settings.title")}</Title>
+          <Paragraph type="tertiary">{t("settings.description")}</Paragraph>
         </div>
-        {actions ? <div className="page-actions">{actions}</div> : null}
       </div>
       <Space vertical spacing={20} className="full-width">
-        {children}
+        {error ? <Banner type="danger" description={error} closeIcon={null} /> : null}
+        {status ? (
+          <Space vertical spacing={20} className="full-width">
+            {status.insecureTLS ? <InsecureTLSWarning /> : null}
+            <Card className="workspace-card" shadows="hover">
+              <Descriptions
+                align="plain"
+                column={2}
+                data={[
+                  { key: t("common.registryUrl"), value: status.registryUrl, span: 2 },
+                  { key: t("common.pageSize"), value: String(status.pageSize) },
+                  { key: t("common.requestTimeout"), value: status.requestTimeout },
+                  { key: t("common.insecureTLS"), value: status.insecureTLS ? t("common.enabled") : t("common.disabled") },
+                  { key: t("common.mode"), value: t("common.readOnly") }
+                ]}
+              />
+            </Card>
+          </Space>
+        ) : (
+          <Card className="workspace-card">
+            <Spin />
+          </Card>
+        )}
       </Space>
     </section>
   );
 }
 
-function FieldLabel({ children, label }: { children: ReactNode; label: string }) {
+function InsecureTLSWarning() {
+  const { t } = useI18n();
   return (
-    <label className="field-label">
-      <Text strong>{label}</Text>
-      {children}
-    </label>
-  );
-}
-
-function MetricCard({
-  label,
-  tone = "blue",
-  value
-}: {
-  label: string;
-  tone?: "blue" | "green" | "grey" | "orange" | "red";
-  value: string;
-}) {
-  return (
-    <Card className="metric-card" shadows="hover">
-      <Text type="tertiary">{label}</Text>
-      <div className="metric-value">
-        <Tag color={tone}>{value}</Tag>
-      </div>
-    </Card>
+    <Banner
+      closeIcon={null}
+      icon={<IconAlertTriangle />}
+      type="warning"
+      description={t("warning.insecureTLS")}
+    />
   );
 }

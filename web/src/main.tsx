@@ -1,3 +1,4 @@
+import "@douyinfe/semi-ui-19/lib/es/react19-adapter";
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
